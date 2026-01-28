@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "postinstall": "npm run build",
     "watch": "tsc --watch",
     "start": "node bin/docforge.js",
     "tui": "node bin/docforge.js",

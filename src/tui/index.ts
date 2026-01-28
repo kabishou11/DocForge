@@ -4,7 +4,7 @@
 
 import { TuiController } from "./controller";
 import { startTui as startTuiCore, waitForConfirm } from "./tui";
-import { select, text, cancel, isCancel, note } from "@clack/prompts";
+import { select, text, cancel, isCancel } from "@clack/prompts";
 import * as fs from "fs";
 import * as path from "path";
 import process from "process";
@@ -124,7 +124,8 @@ async function showModelConfig(controller: TuiController): Promise<void> {
  */
 async function runNewDocumentFlow(controller: TuiController): Promise<void> {
   if (!controller.isConfigured()) {
-    note("请先配置 API Key。输入 /模型 进行配置。", "提示");
+    console.log("\x1b[33m请先配置 API Key。输入 /模型 进行配置。\x1b[0m");
+    await waitForConfirm("按 Enter 返回");
     return;
   }
 
@@ -217,7 +218,8 @@ async function runNewDocumentFlow(controller: TuiController): Promise<void> {
  */
 async function runTemplateFlow(controller: TuiController): Promise<void> {
   if (!controller.isConfigured()) {
-    note("请先配置 API Key。输入 /模型 进行配置。", "提示");
+    console.log("\x1b[33m请先配置 API Key。输入 /模型 进行配置。\x1b[0m");
+    await waitForConfirm("按 Enter 返回");
     return;
   }
 
@@ -235,7 +237,9 @@ async function runTemplateFlow(controller: TuiController): Promise<void> {
   }
 
   if (templateFiles.length === 0) {
-    note("未找到模板文件!\n\n请在 ./templates 目录下放置参考文档 (md/docx/txt)", "提示");
+    console.log("\x1b[33m未找到模板文件!\x1b[0m");
+    console.log("请在 ./templates 目录下放置参考文档 (md/docx/txt)");
+    await waitForConfirm("按 Enter 返回");
     return;
   }
 
@@ -285,7 +289,7 @@ async function runTemplateFlow(controller: TuiController): Promise<void> {
 
     console.log("\n\x1b[32m✅ 文档生成完成!\x1b[0m");
     console.log(`📁 文件: ${result.filePath}`);
-    note(`文档已保存到: ${result.filePath}`, "完成");
+    console.log("\x1b[90m文档已保存\x1b[0m");
     await waitForConfirm("按 Enter 返回主界面");
 
   } catch (error) {
@@ -326,12 +330,13 @@ export async function startTui(options: TuiOptions = {}): Promise<void> {
           break;
         case "settings":
           const settings = controller.getSettings();
-          note(settings, "项目设置");
+          console.clear();
+          console.log("\x1b[1;36m项目设置\x1b[0m\n");
+          console.log(settings);
+          await waitForConfirm("按 Enter 返回");
           break;
         case "help":
-          const helpText = `DocForge 帮助
-
-可用命令:
+          const helpText = `可用命令:
   /0-1 或 /new    从零开始生成文档
   /模板 或 /template  基于模板生成
   /模型 或 /model    模型配置
@@ -344,7 +349,12 @@ export async function startTui(options: TuiOptions = {}): Promise<void> {
 快捷键:
   / 或 Ctrl+P      显示命令菜单
   Ctrl+C           强制退出`;
-          note(helpText, "DocForge 帮助");
+          console.clear();
+          console.log("\x1b[1;36m帮助\x1b[0m\n");
+          console.log(helpText);
+          await waitForConfirm("按 Enter 返回");
+          break;
+          messages.push({ role: "system", content: helpText } as Message);
           break;
         case "exit":
           process.exit(0);
@@ -402,9 +412,7 @@ export async function startTui(options: TuiOptions = {}): Promise<void> {
 
         // /帮助 或 /help
         if (cmd === "/帮助" || cmd === "/help" || cmd === "/?") {
-          const helpText = `DocForge 帮助
-
-可用命令:
+          const helpText = `可用命令:
   /0-1 或 /new    从零开始生成文档
   /模板 或 /template  基于模板生成
   /模型 或 /model    模型配置

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * DocForge CLI - 文档生成命令行工具
  *

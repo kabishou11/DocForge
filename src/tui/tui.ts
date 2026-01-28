@@ -6,10 +6,29 @@
 import { select, cancel, isCancel, text } from "@clack/prompts";
 import { Message } from "./types";
 import * as readline from "readline";
-import * as process from "process";
+// 使用全局 process，无需导入
 
 // 全局退出标志
 let isExiting = false;
+
+// 全局信号处理 - 确保 Ctrl+C 总是能退出
+process.on("SIGINT", () => {
+  if (isExiting) return;
+  isExiting = true;
+
+  try {
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
+    process.stdin.removeAllListeners("keypress");
+    process.stdin.pause();
+  } catch (e) {
+    // 忽略错误
+  }
+
+  console.log("\n\x1b[90m再见！\x1b[0m");
+  process.exit(0);
+});
 
 // 主题配置 (抄自 OpenCode)
 const THEME = {
@@ -41,15 +60,46 @@ const COMMANDS: CommandOption[] = [
 ];
 
 /**
- * 优雅退出
+ * 优雅退出 - 确保 Ctrl+C 能正常工作
  */
 function gracefulExit(): void {
   if (isExiting) return;
   isExiting = true;
 
-  resetStdin();
-  console.log("\n\x1b[90m再见！\x1b[0m");
-  process.exit(0);
+  // 强制关闭 raw mode
+  try {
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
+  } catch (e) {
+    // 忽略错误
+  }
+
+  // 移除所有监听器
+  try {
+    process.stdin.removeAllListeners("keypress");
+  } catch (e) {
+    // 忽略错误
+  }
+
+  // 确保 stdin 不是暂停状态
+  try {
+    if (!process.stdin.isPaused()) {
+      process.stdin.pause();
+    }
+  } catch (e) {
+    // 忽略错误
+  }
+
+  // 发送换行以打断可能的输出
+  process.stdout.write("\n");
+
+  console.log("\x1b[90m再见！\x1b[0m");
+
+  // 强制退出 - 使用 setTimeout 确保在所有 I/O 完成后再退出
+  setTimeout(() => {
+    process.exit(0);
+  }, 50);
 }
 
 /**
@@ -96,7 +146,7 @@ function showHeader(): void {
     ██║███████╗██║╚██████╔╝███████╗
     ╚═╝╚══════╝╚═╝ ╚═════╝ ╚══════╝\x1b[0m`);
   console.log(`\x1b[1;36m欢迎使用 DocForge v0.1\x1b[0m`);
-  console.log(`\x1b[90m输入 / 显示命令菜单 | /模型 配置 API Key | Ctrl+C 退出\x1b[0m`);
+  console.log(`\x1b[90m输入 / 显示命令菜单\x1b[0m`);
   console.log("");
 }
 
@@ -152,8 +202,8 @@ class RealtimeInput {
       }
 
       this.keyHandler = (char: string, key: any) => {
-        // Ctrl+C 退出 - 立即退出
-        if (key.ctrl && char === "c") {
+        // Ctrl+C 退出 - 立即退出 (兼容多种终端)
+        if (key.ctrl && (char === "c" || key.name === "c")) {
           this.cleanup();
           gracefulExit();
           return;
