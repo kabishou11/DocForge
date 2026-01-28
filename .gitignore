@@ -25,3 +25,8 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+# Internal planning docs (keep local only)
+DOCFORGE_PLAN.md
+DOCFORGE_PROMPTS.md
+prompts/*.md
