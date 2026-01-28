@@ -28,7 +28,7 @@ DocForge 是一款创新的 AI 文档生成平台，利用大语言模型（LLM�
 - **🔒 安全可控** - API Key 本地配置，不泄露敏感信息
 
 ---
-
+            
 ## ✨ 功能特性
 
 | 功能 | 描述 | 状态 |
@@ -56,7 +56,7 @@ DocForge 是一款创新的 AI 文档生成平台，利用大语言模型（LLM�
 ```bash
 # 1. 克隆项目
 git clone https://github.com/kabishou11/xyjk_-Proposal.git
-cd xyjk_Proposal
+cd DocForge
 
 # 2. 安装依赖
 npm install
@@ -181,7 +181,7 @@ xyjk_Proposal/
   },
   "github": {
     "owner": "",
-    "repo": "xyjk_-Proposal",
+    "repo": "DocForge",
     "branch": "main"
   }
 }
