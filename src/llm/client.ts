@@ -1,0 +1,322 @@
+/**
+ * LLM Client - ModelScope/OpenAI 兼容接口
+ *
+ * 对接 ModelScope 的 DeepSeek-V3.2 模型，支持流式输出和思考控制
+ *
+ * 使用示例：
+ * const llm = new LLMClient({
+ *   baseUrl: 'https://api-inference.modelscope.cn/v1',
+ *   apiKey: process.env.MODELSCOPE_API_KEY
+ * });
+ *
+ * const response = await llm.chat({
+ *   model: 'deepseek-ai/DeepSeek-V3.2',
+ *   messages: [{ role: 'user', content: '9.9和9.11谁大' }],
+ *   enableThinking: true
+ * });
+ */
+
+import { EventEmitter } from 'events';
+
+export interface LLMConfig {
+  baseUrl: string;
+  apiKey: string;
+  timeout?: number;
+  maxRetries?: number;
+}
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatOptions {
+  model: string;
+  messages: ChatMessage[];
+  enableThinking?: boolean;
+  stream?: boolean;
+  temperature?: number;
+  maxTokens?: number;
+}
+
+export interface ChatResponse {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: Array<{
+    index: number;
+    message: ChatMessage;
+    finish_reason: string;
+  }>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+
+export interface StreamChunk {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: Array<{
+    index: number;
+    delta: {
+      role?: string;
+      content?: string;
+      thinking?: string;
+    };
+    finish_reason?: string;
+  }>;
+}
+
+/**
+ * LLM 客户端核心类
+ */
+export class LLMClient extends EventEmitter {
+  private config: LLMConfig;
+  private baseUrl: string;
+  private apiKey: string;
+
+  constructor(config: LLMConfig) {
+    super();
+    this.config = {
+      timeout: 60000,
+      maxRetries: 3,
+      ...config
+    };
+    this.baseUrl = config.baseUrl.replace(/\/$/, '');
+    this.apiKey = config.apiKey;
+  }
+
+  /**
+   * 发送聊天请求（非流式）
+   */
+  async chat(options: ChatOptions): Promise<ChatResponse> {
+    const endpoint = `${this.baseUrl}/chat/completions`;
+
+    const body = {
+      model: options.model,
+      messages: options.messages,
+      stream: false,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens,
+      extra_body: {
+        enable_thinking: options.enableThinking ?? false
+      }
+    };
+
+    const response = await this.fetchWithRetry(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`
+      },
+      body: JSON.stringify(body)
+    });
+
+    return response.json();
+  }
+
+  /**
+   * 发送流式聊天请求
+   *
+   * 使用示例：
+   * const stream = await llm.chatStream({
+   *   model: 'deepseek-ai/DeepSeek-V3.2',
+   *   messages: [{ role: 'user', content: '介绍无锡' }],
+   *   enableThinking: true
+   * });
+   *
+   * for await (const chunk of stream) {
+   *   if (chunk.choices[0]?.delta.content) {
+   *     process.stdout.write(chunk.choices[0].delta.content);
+   *   }
+   * }
+   */
+  async *chatStream(options: ChatOptions): AsyncGenerator<StreamChunk> {
+    const endpoint = `${this.baseUrl}/chat/completions`;
+
+    const body = {
+      model: options.model,
+      messages: options.messages,
+      stream: true,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens,
+      extra_body: {
+        enable_thinking: options.enableThinking ?? true
+      }
+    };
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`API Error: ${response.status} - ${error}`);
+    }
+
+    if (!response.body) {
+      throw new Error('Response body is null');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') {
+            return;
+          }
+          try {
+            const chunk = JSON.parse(data);
+            yield chunk as StreamChunk;
+          } catch (e) {
+            // 忽略解析错误
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * 带重试的 fetch
+   */
+  private async fetchWithRetry(
+    url: string,
+    options: RequestInit,
+    retries?: number
+  ): Promise<Response> {
+    const maxRetries = retries ?? this.config.maxRetries ?? 3;
+
+    for (let i = 0; i <= maxRetries; i++) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), this.config.timeout);
+
+        const response = await fetch(url, {
+          ...options,
+          signal: controller.signal
+        });
+
+        clearTimeout(timeout);
+
+        if (response.ok) {
+          return response;
+        }
+
+        const error = await response.text();
+        throw new Error(`API Error: ${response.status} - ${error}`);
+      } catch (error) {
+        if (i === maxRetries) {
+          throw error;
+        }
+        // 指数退避
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+      }
+    }
+
+    throw new Error('Max retries exceeded');
+  }
+
+  /**
+   * 便捷方法：生成文档大纲
+   */
+  async generateOutline(
+    topic: string,
+    description: string,
+    styleVersion: string = 'v0.1'
+  ): Promise<{
+    sections: Array<{ id: string; title: string; level: number; summary: string }>;
+    wordCount: string;
+  }> {
+    const prompt = `基于以下主题和描述，生成文档大纲。
+
+主题：${topic}
+描述：${description}
+风格版本：${styleVersion}
+
+请以 JSON 格式输出大纲，格式如下：
+{
+  "sections": [
+    {"id": "sec-1", "title": "章节标题", "level": 1, "summary": "章节摘要"}
+  ],
+  "wordCount": "预估字数范围"
+}`;
+
+    const response = await this.chat({
+      model: 'deepseek-ai/DeepSeek-V3.2',
+      messages: [{ role: 'user', content: prompt }],
+      enableThinking: false
+    });
+
+    const content = response.choices[0].message.content;
+    // 尝试解析 JSON
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    throw new Error('Failed to parse outline JSON');
+  }
+
+  /**
+   * 便捷方法：生成章节内容
+   */
+  async generateSection(
+    section: { id: string; title: string; level: number; summary: string },
+    topic: string,
+    styleConstraints: Record<string, unknown>
+  ): Promise<string> {
+    const prompt = `基于以下信息生成章节内容：
+
+主题：${topic}
+章节信息：
+- ID: ${section.id}
+- 标题: ${section.title}
+- 级别: ${section.level}
+- 摘要: ${section.summary}
+
+风格约束：${JSON.stringify(styleConstraints)}
+
+请生成符合要求的章节内容，直接输出文本（不需要 JSON 包装）。`;
+
+    const response = await this.chat({
+      model: 'deepseek-ai/DeepSeek-V3.2',
+      messages: [{ role: 'user', content: prompt }],
+      enableThinking: true,
+      temperature: 0.7
+    });
+
+    return response.choices[0].message.content;
+  }
+}
+
+/**
+ * 创建默认 LLM 客户端
+ */
+export function createLLMClient(apiKey?: string): LLMClient {
+  return new LLMClient({
+    baseUrl: process.env.LLM_BASE_URL || 'https://api-inference.modelscope.cn/v1',
+    apiKey: apiKey || process.env.MODELSCOPE_API_KEY || ''
+  });
+}
+
+export default LLMClient;

@@ -1,0 +1,54 @@
+{
+  "version": "v0.1",
+  "page": {
+    "size": {
+      "width": 210,
+      "height": 297
+    },
+    "margins": {
+      "top": 25.4,
+      "right": 31.7,
+      "bottom": 25.4,
+      "left": 31.7
+    },
+    "orientation": "portrait"
+  },
+  "font": {
+    "eastAsia": "宋体",
+    "ascii": "Calibri",
+    "size": {
+      "heading": 15.75,
+      "body": 10.5,
+      "caption": 9
+    }
+  },
+  "paragraph": {
+    "spacing": {
+      "line": 360,
+      "before": 0,
+      "after": 0
+    },
+    "indent": {
+      "firstLine": 2
+    }
+  },
+  "headingStyles": [
+    {
+      "level": 1,
+      "styleId": "Heading1",
+      "name": "一级标题"
+    },
+    {
+      "level": 2,
+      "styleId": "Heading2",
+      "name": "二级标题"
+    },
+    {
+      "level": 3,
+      "styleId": "Heading3",
+      "name": "三级标题"
+    }
+  ],
+  "listStyles": [],
+  "styles": {}
+}
