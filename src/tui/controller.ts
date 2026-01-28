@@ -37,7 +37,10 @@ export class TuiController extends EventEmitter {
     }
 
     // 初始化服务
-    this.llmClient = createLLMClient(this.configManager.getApiKey());
+    this.llmClient = createLLMClient(
+      this.configManager.getApiKey(),
+      this.configManager.getLLM().id
+    );
     this.modelService = new ModelScopeService(this.configManager);
 
     // 加载模型
@@ -197,7 +200,10 @@ export class TuiController extends EventEmitter {
       return false;
     }
     this.configManager.setApiKey(key);
-    this.llmClient = createLLMClient(this.configManager.getApiKey());
+    this.llmClient = createLLMClient(
+      this.configManager.getApiKey(),
+      this.configManager.getLLM().id
+    );
     return true;
   }
 
@@ -208,6 +214,7 @@ export class TuiController extends EventEmitter {
     const model = this.llmModels.find((m) => m.id === modelId);
     if (model) {
       this.modelService.setLLM(model.id, model.name);
+      this.llmClient.setModelId(model.id);
       return true;
     }
     return false;

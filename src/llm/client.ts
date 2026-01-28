@@ -98,8 +98,9 @@ export class LLMClient extends EventEmitter {
   private config: LLMConfig;
   private baseUrl: string;
   private apiKey: string;
+  private modelId: string;
 
-  constructor(config: LLMConfig) {
+  constructor(config: LLMConfig, modelId: string = 'deepseek-ai/DeepSeek-V3.2') {
     super();
     this.config = {
       timeout: 180000, // 3 minutes timeout for large requests
@@ -108,6 +109,21 @@ export class LLMClient extends EventEmitter {
     };
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
     this.apiKey = config.apiKey;
+    this.modelId = modelId;
+  }
+
+  /**
+   * 设置模型 ID
+   */
+  setModelId(modelId: string): void {
+    this.modelId = modelId;
+  }
+
+  /**
+   * 获取模型 ID
+   */
+  getModelId(): string {
+    return this.modelId;
   }
 
   /**
@@ -287,7 +303,7 @@ export class LLMClient extends EventEmitter {
 }`;
 
     const response = await this.chat({
-      model: 'deepseek-ai/DeepSeek-V3.2',
+      model: this.modelId,
       messages: [{ role: 'user', content: prompt }],
       enableThinking: false
     });
@@ -323,7 +339,7 @@ export class LLMClient extends EventEmitter {
 请生成符合要求的章节内容，直接输出文本（不需要 JSON 包装）。`;
 
     const response = await this.chat({
-      model: 'deepseek-ai/DeepSeek-V3.2',
+      model: this.modelId,
       messages: [{ role: 'user', content: prompt }],
       enableThinking: true,
       temperature: 0.7
@@ -359,7 +375,7 @@ ${outline.sections.map((s, i) => `${'#'.repeat(s.level)} ${s.title}\n${s.summary
 请直接生成文档内容，无需额外说明。`;
 
     const response = await this.chat({
-      model: 'deepseek-ai/DeepSeek-V3.2',
+      model: this.modelId,
       messages: [{ role: 'user', content: prompt }],
       enableThinking: true,
       temperature: 0.7,
@@ -407,7 +423,7 @@ ${truncatedTemplate}
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const response = await this.chat({
-          model: 'deepseek-ai/DeepSeek-V3.2',
+          model: this.modelId,
           messages: [{ role: 'user', content: prompt }],
           enableThinking: true,
           temperature: 0.7,
@@ -430,11 +446,11 @@ ${truncatedTemplate}
 /**
  * 创建默认 LLM 客户端
  */
-export function createLLMClient(apiKey?: string): LLMClient {
+export function createLLMClient(apiKey?: string, modelId?: string): LLMClient {
   return new LLMClient({
     baseUrl: process.env.LLM_BASE_URL || 'https://api-inference.modelscope.cn/v1',
     apiKey: apiKey || process.env.MODELSCOPE_API_KEY || ''
-  });
+  }, modelId);
 }
 
 export default LLMClient;
