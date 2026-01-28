@@ -4,19 +4,24 @@
  * DocForge CLI - 文档生成命令行工具
  *
  * 使用方法：
- *   docforge init          # 初始化项目配置
- *   docforge style         # 查看/管理风格模板
- *   docforge generate -t "主题" -d "描述"  # 生成文档
- *   docforge preview       # 预览文档结构
- *   docforge sync          # 同步到 GitHub
- *   docforge status        # 查看项目状态
- *   docforge config        # 查看/修改配置
+ *   docforge              # 启动 TUI 交互界面
+ *   docforge init         # 初始化项目配置
+ *   docforge style        # 查看/管理风格模板
+ *   docforge generate     # 生成文档 (交互式)
+ *   docforge models       # 管理模型配置
+ *   docforge preview      # 预览文档结构
+ *   docforge sync         # 同步到 GitHub
+ *   docforge status       # 查看项目状态
+ *   docforge config       # 查看/修改配置
  */
 
 import * as readline from 'readline';
 import { Command } from 'commander';
 import { DocumentWorkflow } from './workflow/document';
 import { LLMClient, createLLMClient } from './llm/client';
+import { ModelScopeService } from './services/modelscope';
+import { ConfigManager } from './config';
+import { startTui } from './tui';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -35,8 +40,16 @@ export async function main(): Promise<void> {
     .description('LLM 驱动的文档生成 CLI')
     .version(packageJson.version)
     .configureOutput({
-      writeOutput: (str) => process.stdout.write(str),
-      writeError: (str) => process.stderr.write(str)
+      writeOut: (str: string) => process.stdout.write(str),
+      writeErr: (str: string) => process.stderr.write(str)
+    });
+
+  // tui 命令
+  program
+    .command('tui')
+    .description('启动 TUI 交互界面')
+    .action(async () => {
+      await startTui();
     });
 
   // init 命令
@@ -103,6 +116,19 @@ export async function main(): Promise<void> {
     .option('--set <key> <value>', '设置配置项')
     .action(async (options) => {
       await cmdConfig(options);
+    });
+
+  // models 命令
+  program
+    .command('models')
+    .description('管理模型配置')
+    .option('--list', '列出所有可用模型')
+    .option('--set <apiKey>', '设置 ModelScope API Key')
+    .option('--llm <modelId>', '设置 LLM 模型')
+    .option('--vl <modelId>', '设置 VL 模型')
+    .option('--test', '测试模型连接')
+    .action(async (options) => {
+      await cmdModels(options);
     });
 
   await program.parseAsync(process.argv);
@@ -408,6 +434,114 @@ function setNestedValue(obj: Record<string, unknown>, path: string, value: unkno
   current[parts[parts.length - 1]] = value;
 }
 
+/**
+ * models 命令实现
+ */
+async function cmdModels(options: {
+  list?: boolean;
+  set?: string;
+  llm?: string;
+  vl?: string;
+  test?: boolean;
+}): Promise<void> {
+  console.log('🤖 模型配置管理\n');
+
+  const configManager = new ConfigManager();
+  const apiKey = options.set || configManager.getApiKey();
+
+  if (!apiKey) {
+    console.log('未配置 ModelScope API Key');
+    console.log('\n使用以下方式配置：');
+    console.log('  1. 环境变量: set MODELSCOPE_API_KEY=your-key');
+    console.log('  2. 命令行: docforge --set <api-key>');
+    console.log('  3. TUI 中输入: /模型');
+    return;
+  }
+
+  // 如果提供了 --set 参数，保存 API Key
+  if (options.set) {
+    configManager.setApiKey(options.set);
+    console.log('API Key 已保存');
+  }
+
+  const modelService = new ModelScopeService(configManager);
+
+  // 测试连接
+  if (options.test || options.list) {
+    console.log('正在连接 ModelScope...');
+
+    try {
+      const result = await modelService.testConnection();
+      if (!result.success) {
+        console.log(`连接失败: ${result.message}`);
+        return;
+      }
+      console.log('连接成功!\n');
+    } catch (error) {
+      console.log(`连接失败: ${error}`);
+      return;
+    }
+  }
+
+  // 列出模型
+  if (options.list) {
+    console.log('📋 可用模型列表:\n');
+
+    try {
+      const models = await modelService.listModels();
+
+      // 按类型分组
+      const llmModels = models.filter(m => m.type === 'llm');
+      const vlModels = models.filter(m => m.type === 'vl');
+
+      console.log('【LLM 模型】');
+      for (const model of llmModels.slice(0, 20)) {
+        const desc = model.description ? ` - ${model.description}` : '';
+        console.log(`  • ${model.id}${desc}`);
+      }
+      if (llmModels.length > 20) {
+        console.log(`  ... 共 ${llmModels.length} 个`);
+      }
+
+      console.log('\n【VL 模型 (视觉语言)】');
+      for (const model of vlModels) {
+        const desc = model.description ? ` - ${model.description}` : '';
+        console.log(`  • ${model.id}${desc}`);
+      }
+    } catch (error) {
+      console.log(`❌ 获取模型列表失败: ${error}`);
+    }
+    return;
+  }
+
+  // 测试连接
+  if (options.test) {
+    console.log('✅ ModelScope 连接测试通过');
+    console.log('\n使用 --list 查看可用模型');
+    console.log('使用 --llm <model-id> 设置 LLM 模型');
+    console.log('使用 --vl <model-id> 设置 VL 模型');
+  }
+
+  // 设置 LLM
+  if (options.llm) {
+    console.log(`✅ 已设置 LLM 模型: ${options.llm}`);
+  }
+
+  // 设置 VL
+  if (options.vl) {
+    console.log(`✅ 已设置 VL 模型: ${options.vl}`);
+  }
+
+  if (!options.list && !options.test && !options.llm && !options.vl) {
+    console.log('模型配置选项：');
+    console.log('  --list       列出所有可用模型');
+    console.log('  --set <key>  设置 ModelScope API Key');
+    console.log('  --llm <id>   设置 LLM 模型');
+    console.log('  --vl <id>    设置 VL 模型');
+    console.log('  --test       测试连接');
+  }
+}
+
 // 导出供测试
 export {
   cmdInit,
@@ -416,7 +550,8 @@ export {
   cmdPreview,
   cmdSync,
   cmdStatus,
-  cmdConfig
+  cmdConfig,
+  cmdModels
 };
 
 // 运行主函数

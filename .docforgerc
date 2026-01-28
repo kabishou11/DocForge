@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "app": "docforge",
+  "llm": {
+    "baseUrl": "https://api-inference.modelscope.cn/v1",
+    "model": "deepseek-ai/DeepSeek-V3.2"
+  },
+  "github": {
+    "owner": "",
+    "repo": "xyjk_-Proposal",
+    "branch": "main"
+  },
+  "style": {
+    "version": "v0.1",
+    "defaultTemplate": "default"
+  },
+  "output": {
+    "directory": "./output"
+  }
+}

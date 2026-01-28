@@ -25,9 +25,28 @@ export interface LLMConfig {
   maxRetries?: number;
 }
 
+export interface ContentBlock {
+  type: 'text' | 'image_url';
+  text?: string;
+  image_url?: {
+    url: string;
+  };
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | ContentBlock[];
+}
+
+// Helper function to extract text from message content
+export function extractText(content: string | ContentBlock[]): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  return content
+    .filter(block => block.type === 'text' && block.text)
+    .map(block => block.text!)
+    .join('');
 }
 
 export interface ChatOptions {
@@ -83,8 +102,8 @@ export class LLMClient extends EventEmitter {
   constructor(config: LLMConfig) {
     super();
     this.config = {
-      timeout: 60000,
-      maxRetries: 3,
+      timeout: 180000, // 3 minutes timeout for large requests
+      maxRetries: 2,
       ...config
     };
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -117,7 +136,7 @@ export class LLMClient extends EventEmitter {
       body: JSON.stringify(body)
     });
 
-    return response.json();
+    return response.json() as Promise<ChatResponse>;
   }
 
   /**
@@ -205,11 +224,12 @@ export class LLMClient extends EventEmitter {
     options: RequestInit,
     retries?: number
   ): Promise<Response> {
-    const maxRetries = retries ?? this.config.maxRetries ?? 3;
+    const maxRetries = retries ?? this.config.maxRetries ?? 2;
 
     for (let i = 0; i <= maxRetries; i++) {
       try {
         const controller = new AbortController();
+        // 使用更长的超时时间
         const timeout = setTimeout(() => controller.abort(), this.config.timeout);
 
         const response = await fetch(url, {
@@ -226,6 +246,10 @@ export class LLMClient extends EventEmitter {
         const error = await response.text();
         throw new Error(`API Error: ${response.status} - ${error}`);
       } catch (error) {
+        // 如果是 abort (超时) 错误，直接抛出，不重试
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new Error(`请求超时 (${this.config.timeout}ms)，请稍后重试`);
+        }
         if (i === maxRetries) {
           throw error;
         }
@@ -268,7 +292,7 @@ export class LLMClient extends EventEmitter {
       enableThinking: false
     });
 
-    const content = response.choices[0].message.content;
+    const content = extractText(response.choices[0].message.content);
     // 尝试解析 JSON
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -305,7 +329,101 @@ export class LLMClient extends EventEmitter {
       temperature: 0.7
     });
 
-    return response.choices[0].message.content;
+    return extractText(response.choices[0].message.content);
+  }
+
+  /**
+   * 生成完整文档
+   */
+  async generateDocument(
+    topic: string,
+    description: string,
+    outline: { sections: Array<{ level: number; title: string; summary: string }>; wordCount: number | string }
+  ): Promise<string> {
+    const prompt = `请根据以下信息生成一篇完整的文档，使用 Markdown 格式。
+
+文档主题：${topic}
+文档描述：${description}
+预估字数：${outline.wordCount}
+
+文档大纲：
+${outline.sections.map((s, i) => `${'#'.repeat(s.level)} ${s.title}\n${s.summary}`).join('\n\n')}
+
+要求：
+1. 使用 Markdown 格式输出
+2. 遵循学术/专业文档风格
+3. 每个章节要有充实的内容
+4. 使用中文标点符号
+5. 内容要详实、深入
+
+请直接生成文档内容，无需额外说明。`;
+
+    const response = await this.chat({
+      model: 'deepseek-ai/DeepSeek-V3.2',
+      messages: [{ role: 'user', content: prompt }],
+      enableThinking: true,
+      temperature: 0.7,
+      maxTokens: 16384
+    });
+
+    return extractText(response.choices[0].message.content);
+  }
+
+  /**
+   * 基于模板生成文档
+   */
+  async generateDocumentFromTemplate(
+    templateContent: string,
+    topic: string,
+    description: string
+  ): Promise<string> {
+    // 截取模板的关键部分（标题结构和部分内容示例）
+    // 只取前 2000 字符，减少请求大小
+    const truncatedTemplate = templateContent.length > 2000
+      ? templateContent.slice(0, 2000) + '\n...（更多内容省略）'
+      : templateContent;
+
+    const prompt = `请按照以下参考文档的风格，生成一篇新文档。
+
+【参考文档风格摘要】
+${truncatedTemplate}
+
+【新文档要求】
+主题：${topic}
+描述：${description}
+
+要求：
+1. 参考文档的标题层级结构（如：一、XXX；二、XXX；3.1 XXX；3.2 XXX）
+2. 参考文档的专业语气和格式
+3. 使用中文标点符号（，。：；""等）
+4. 内容要详实、深入、专业
+5. 生成完整的可直接使用的文档
+
+请直接生成文档内容，无需提及"参考文档"。`;
+
+    let lastError: Error | null = null;
+    const maxRetries = 2;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await this.chat({
+          model: 'deepseek-ai/DeepSeek-V3.2',
+          messages: [{ role: 'user', content: prompt }],
+          enableThinking: true,
+          temperature: 0.7,
+          maxTokens: 8192
+        });
+
+        return extractText(response.choices[0].message.content);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      }
+    }
+
+    throw lastError || new Error('生成文档失败');
   }
 }
 

@@ -8,9 +8,6 @@ dist/
 .env
 .env.local
 
-# Output directory
-output/
-
 # IDE
 .vscode/
 .idea/
@@ -30,3 +27,7 @@ npm-debug.log*
 DOCFORGE_PLAN.md
 DOCFORGE_PROMPTS.md
 prompts/*.md
+
+# API Key files (never commit real keys)
+*.key
+apikey.txt

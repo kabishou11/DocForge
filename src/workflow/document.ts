@@ -4,8 +4,8 @@
  * 协调 LLM 客户端、风格配置和 DOCX 生成器
  */
 
-import { LLMClient, ChatMessage } from './llm/client';
-import { DocxGenerator, StyleConfig, loadStyleConfig } from './docx/generator';
+import { LLMClient, ChatMessage } from '../llm/client';
+import { DocxGenerator, StyleConfig } from '../docx/generator';
 
 export interface WorkflowOptions {
   llmClient: LLMClient;
@@ -78,11 +78,17 @@ export class DocumentWorkflow {
 
     // Step 1: 生成大纲
     console.log('📋 Step 1: 生成文档大纲...');
-    const outline = await this.llmClient.generateOutline(
+    const outlineResult = await this.llmClient.generateOutline(
       options.topic,
       options.description,
       'v0.1'
     );
+
+    // 确保有 wordCount
+    const outline = {
+      sections: outlineResult.sections,
+      wordCount: outlineResult.wordCount || '2000-3000'
+    };
 
     if (this.debug) {
       console.log('大纲预览:', JSON.stringify(outline, null, 2));
@@ -139,8 +145,14 @@ export class DocumentWorkflow {
   async generateFromOutline(
     topic: string,
     description: string,
-    outline: { sections: Array<{ id: string; title: string; level: number; summary: string }> }
+    outlineInput: { sections: Array<{ id: string; title: string; level: number; summary: string }> }
   ): Promise<WorkflowResult> {
+    // 确保 outline 有 wordCount
+    const outline = {
+      sections: outlineInput.sections,
+      wordCount: '2000-3000'
+    };
+
     console.log('🚀 使用现有大纲生成文档...');
 
     // 生成各章节内容

@@ -7,7 +7,23 @@
       "Bash(git init)",
       "Bash(git branch:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git config:*)",
+      "Bash(git remote:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git rm:*)",
+      "Bash(npm link)",
+      "Bash(where:*)",
+      "Bash(npx docforge --help:*)",
+      "Bash(node:*)",
+      "Bash(npm run build)",
+      "WebSearch",
+      "Bash(dir:*)",
+      "Bash(npm install:*)",
+      "Bash(npm search @opentui)",
+      "Bash(npx tsc:*)",
+      "Bash(npx ts-node:*)"
     ]
   }
 }
