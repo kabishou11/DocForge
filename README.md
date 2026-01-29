@@ -55,7 +55,7 @@ DocForge 是一款创新的 AI 文档生成平台，利用大语言模型（LLM�
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/kabishou11/Docforge.git
+git clone https://github.com/kabishou11/DocForge.git
 cd DocForge
 
 # 2. 安装依赖
