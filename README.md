@@ -1,6 +1,8 @@
-<div align="center">
-# DocForge - AI 驱动的智能文档生成平台
+<h1 align="center">DocForge - AI 驱动的智能文档生成平台</h1>
 
+
+<div align="center">
+  
 ![DocForge](https://img.shields.io/badge/DocForge-v0.1.0-blue?style=for-the-badge&logo=rocket)
 ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.0-green?style=for-the-badge&logo=node.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue?style=for-the-badge&logo=typescript)
