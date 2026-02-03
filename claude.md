@@ -498,4 +498,4 @@ await controller.generateDocumentFromTemplate(template, topic, desc, {
 ---
 
 *本文档会随着项目演进持续更新*
-*最后更新: 2026-02-02 使用 Python python-docx 替代 docx.js*
+*最后更新: 2026-02-02 同步到 GitHub，使用 Python python-docx 替代 docx.js*
