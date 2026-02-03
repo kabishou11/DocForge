@@ -8,7 +8,7 @@ import { ChatMessage, ContentBlock } from '../llm/client';
 // ==================== 配置类型 ====================
 
 // Re-export for convenience
-export { ChatMessage, ContentBlock };
+export type { ChatMessage, ContentBlock };
 
 export interface ModelProvider {
   id: string;
@@ -24,10 +24,11 @@ export interface ModelProvider {
 export interface ModelInfo {
   id: string;
   name: string;
-  type: 'llm' | 'vl';
+  type: 'llm' | 'vl' | 'ocr';
   description?: string;
   contextLength?: number;
   provider?: string;
+  localPath?: string;  // 本地模型路径
 }
 
 export interface ProjectConfig {

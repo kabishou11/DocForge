@@ -53,6 +53,8 @@ export interface CommandOption {
 const COMMANDS: CommandOption[] = [
   { id: "new", title: "从零开始撰写", description: "从零开始生成文档", category: "文档" },
   { id: "template", title: "基于模板生成", description: "基于模板生成文档", category: "文档" },
+  { id: "mcp", title: "MCP 工具", description: "查看 MCP 工具状态", category: "工具" },
+  { id: "skills", title: "Skills 管理", description: "查看和管理 Skills", category: "工具" },
   { id: "model", title: "模型配置", description: "管理模型配置", category: "设置" },
   { id: "settings", title: "项目设置", description: "查看项目设置", category: "设置" },
   { id: "help", title: "帮助", description: "查看帮助信息", category: "系统" },
@@ -107,23 +109,33 @@ function gracefulExit(): void {
  * 确保 stdin 从 @clack/prompts 的干扰中完全恢复
  */
 function resetStdin(): void {
-  // 1. 先确保不是 raw mode
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(false);
-  }
+  try {
+    // 1. 关闭 raw mode
+    if (process.stdin.isTTY && process.stdin.isRaw) {
+      process.stdin.setRawMode(false);
+    }
 
-  // 2. 移除所有 keypress 监听器
-  process.stdin.removeAllListeners("keypress");
+    // 2. 移除所有监听器
+    process.stdin.removeAllListeners("keypress");
 
-  // 3. 重新触发 keypress 事件，让 readline 接管
-  readline.emitKeypressEvents(process.stdin);
+    // 3. 重新绑定 keypress 事件（关键！）
+    readline.emitKeypressEvents(process.stdin);
 
-  // 4. 确保 stdin 是暂停的（等待读取）
-  process.stdin.pause();
+    // 4. 确保 stdin 暂停（等待读取）
+    if (!process.stdin.isPaused()) {
+      process.stdin.pause();
+    }
 
-  // 5. 再次确保 raw mode 关闭
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(false);
+    // 5. 再次尝试关闭 raw mode（双重保障）
+    if (process.stdin.isTTY) {
+      try {
+        process.stdin.setRawMode(false);
+      } catch {
+        // 忽略错误
+      }
+    }
+  } catch (error) {
+    // 忽略所有错误
   }
 }
 
@@ -131,7 +143,7 @@ function resetStdin(): void {
  * 等待终端稳定
  */
 function waitForStabilize(): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, 50));
+  return new Promise(resolve => setTimeout(resolve, 100));
 }
 
 /**

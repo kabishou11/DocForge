@@ -391,7 +391,8 @@ ${outline.sections.map((s, i) => `${'#'.repeat(s.level)} ${s.title}\n${s.summary
   async generateDocumentFromTemplate(
     templateContent: string,
     topic: string,
-    description: string
+    description: string,
+    stylePrompt?: string
   ): Promise<string> {
     // 截取模板的关键部分（标题结构和部分内容示例）
     // 只取前 2000 字符，减少请求大小
@@ -399,10 +400,17 @@ ${outline.sections.map((s, i) => `${'#'.repeat(s.level)} ${s.title}\n${s.summary
       ? templateContent.slice(0, 2000) + '\n...（更多内容省略）'
       : templateContent;
 
-    const prompt = `请按照以下参考文档的风格，生成一篇新文档。
+    let prompt = `请按照以下参考文档的风格，生成一篇新文档。
 
 【参考文档风格摘要】
-${truncatedTemplate}
+${truncatedTemplate}`;
+
+    // 添加额外的样式提示
+    if (stylePrompt) {
+      prompt += `\n\n${stylePrompt}`;
+    }
+
+    prompt += `
 
 【新文档要求】
 主题：${topic}

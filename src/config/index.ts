@@ -25,6 +25,10 @@ export interface DocForgeConfig {
       id: string;
       name: string;
     };
+    ocr: {
+      id: string;
+      name: string;
+    };
   };
 
   // 目录配置
@@ -60,6 +64,10 @@ const DEFAULT_CONFIG: DocForgeConfig = {
     vl: {
       id: 'Qwen/Qwen3-VL-235B-A22B-Instruct',
       name: 'Qwen3-VL-235B'
+    },
+    ocr: {
+      id: 'local:PaddleOCR-VL-1.5',
+      name: 'PaddleOCR-VL-1.5'
     }
   },
   directories: {
@@ -171,6 +179,21 @@ export class ConfigManager {
    */
   getVL(): { id: string; name: string } {
     return this.config.models.vl;
+  }
+
+  /**
+   * 设置 OCR 模型
+   */
+  setOCR(modelId: string, modelName: string): void {
+    this.config.models.ocr = { id: modelId, name: modelName };
+    this.save();
+  }
+
+  /**
+   * 获取 OCR 模型
+   */
+  getOCR(): { id: string; name: string } {
+    return this.config.models.ocr;
   }
 
   /**

@@ -1,8 +1,10 @@
 # Dependencies
 node_modules/
+.venv/
 
 # Build output
 dist/
+bin/
 
 # Environment files
 .env
@@ -31,3 +33,19 @@ prompts/*.md
 # API Key files (never commit real keys)
 *.key
 apikey.txt
+
+# Generated outputs
+output/
+.temp_images/
+.cache/
+
+# Models (optional, large)
+models/
+
+# Claude settings (personal)
+.claude/settings.local.json
+
+# Local config
+.docforge/
+style.json
+nul

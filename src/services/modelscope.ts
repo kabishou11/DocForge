@@ -80,6 +80,16 @@ const POPULAR_MODELS: ModelInfo[] = [
     description: '视觉语言模型',
     contextLength: 128000,
     provider: 'modelscope'
+  },
+  // OCR Models
+  {
+    id: 'local:PaddleOCR-VL-1.5',
+    name: 'PaddleOCR-VL-1.5',
+    type: 'ocr',
+    description: '本地 OCR 模型，支持图文识别',
+    contextLength: 4096,
+    provider: 'local',
+    localPath: './models/PaddleOCR-VL-1.5'
   }
 ];
 
@@ -120,6 +130,14 @@ export class ModelScopeService {
   async listVLModels(): Promise<ModelInfo[]> {
     const models = await this.listModels();
     return models.filter(m => m.type === 'vl');
+  }
+
+  /**
+   * 获取 OCR 模型列表
+   */
+  async listOCRModels(): Promise<ModelInfo[]> {
+    const models = await this.listModels();
+    return models.filter(m => m.type === 'ocr');
   }
 
   /**
