@@ -79,7 +79,7 @@ set MODELSCOPE_API_KEY=your-api-key
 
 ```bash
 # 下载 OCR 模型（可选，如需本地版面识别功能）
-# 模型下载地址：https://github.com/PaddlePaddle/PaddleOCR/tree/main/ppstructure/vqa
+# 模型下载地址：https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5
 # 将模型文件放置于 ./models/ 目录
 
 # 如不使用本地 OCR，将使用默认样式规则
