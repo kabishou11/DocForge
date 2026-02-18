@@ -28,6 +28,7 @@ export interface GenerationProgress {
 
 export interface GenerateOptions {
   onProgress?: (progress: GenerationProgress) => void;
+  wordCount?: number;
 }
 
 export interface ControllerOptions {
@@ -524,7 +525,8 @@ export class TuiController extends EventEmitter {
         templateContent,
         topic,
         description,
-        stylePrompt
+        stylePrompt,
+        options?.wordCount
       );
 
       reportProgress('content_generation', llmConfig.name, 'completed', `内容生成完成，约 ${content.length} 字符`);
@@ -585,40 +587,36 @@ export class TuiController extends EventEmitter {
    */
   private buildStylePrompt(styleRules: StyleRules): string {
     const s = styleRules;
+    const h1Font = s.heading1.fontFamily || '黑体';
+    const h2Font = s.heading2.fontFamily || '楷体';
+    const bodyFont = s.body.fontFamily || '宋体';
+    const bodySize = s.body.fontSize || 12;
 
     return `
+【文档格式规范（必须严格遵守）】
 
-## 文档格式规范
-请严格按照以下格式生成文档：
+1. Markdown 标题层级：
+   - 文档主标题：# 标题（居中，${h1Font}，${s.title.fontSize || 22}pt，加粗）
+   - 一级标题：## 标题（${h1Font}，${s.heading1.fontSize || 16}pt，加粗）
+   - 二级标题：### 标题（${h2Font}，${s.heading2.fontSize || 14}pt，加粗）
+   - 三级标题：#### 标题（${bodyFont}，${s.heading3.fontSize || 12}pt，加粗）
 
-### 标题格式
-- 文档主标题：${s.title.fontFamily}，${s.title.fontSize}pt，${s.title.fontBold ? '加粗' : '常规'}，${s.title.alignment === 'center' ? '居中' : '左对齐'}
-- 一级标题：${s.heading1.fontFamily}，${s.heading1.fontSize}pt，${s.heading1.fontBold !== false ? '加粗' : '常规'}
-- 二级标题：${s.heading2.fontFamily}，${s.heading2.fontSize}pt，${s.heading2.fontBold !== false ? '加粗' : '常规'}
-- 三级标题：${s.heading3.fontFamily}，${s.heading3.fontSize}pt
+2. 正文格式：
+   - 字体：${bodyFont}，${bodySize}pt
+   - 对齐：${s.body.alignment === 'justify' ? '两端对齐' : '左对齐'}
+   - 行距：${s.body.lineSpacing || 1.5}倍
+   - 每段首行缩进两个汉字（在正文中体现）
 
-### 正文格式
-- 字体：${s.body.fontFamily}
-- 字号：${s.body.fontSize}pt
-- 对齐：${s.body.alignment === 'justify' ? '两端对齐' : s.body.alignment}
-- 行距：${s.body.lineSpacing || 1.5}倍
-- 首行缩进：${s.body.indent ? '2字符' : '无'}
+3. 内容质量要求：
+   - 每个章节至少包含 2-3 个段落，每段不少于 100 字
+   - 禁止出现空洞的标题后无内容的情况
+   - 专业术语准确，逻辑清晰，层次分明
+   - 适当使用列表、表格增强可读性
 
-### 特殊格式
-- 列表：使用统一的符号（如 "•"）
-- 引用：使用左边框标记，灰色背景
-- 表格：标准三线表格式
-
-### Markdown 语法要求
-- 一级标题使用 # 标题
-- 二级标题使用 ## 标题
-- 三级标题使用 ### 标题
-- 列表使用 - 或 1. 开头
-- 引用使用 > 开头
-- 表格使用 | 分隔
-
-请直接生成 Markdown 格式的文档内容。
-`;
+4. 输出格式：
+   - 纯 Markdown 格式
+   - 不要输出任何解释、说明或元信息
+   - 不要使用代码块包裹整个文档`;
   }
 
   /**

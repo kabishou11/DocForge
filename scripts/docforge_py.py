@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 DocForge Python 文档处理器
 功能：
@@ -11,481 +12,568 @@ import json
 import re
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 
 try:
     from docx import Document
-    from docx.shared import Inches, Pt, RGBColor
+    from docx.shared import Inches, Pt, RGBColor, Emu
     from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
-    from docx.enum.style import WD_STYLE_TYPE
     from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    import lxml.etree as etree
 except ImportError:
-    print("请先安装依赖: pip install python-docx lxml")
+    print("请先安装依赖: pip install python-docx lxml", file=sys.stderr)
     sys.exit(1)
 
 
-@dataclass
-class FontStyle:
-    """字体样式"""
-    name: str = "宋体"
-    size: int = 12  # 磅值
-    bold: bool = False
-    italic: bool = False
-    color_rgb: Optional[str] = None  # "#RRGGBB" 格式
+# ─────────────────────────────────────────────
+# 样式数据结构
+# ─────────────────────────────────────────────
+
+def default_style_rules() -> dict:
+    return {
+        "title": {
+            "font": {"name": "黑体", "size": 22, "bold": True, "italic": False},
+            "paragraph": {"alignment": "center", "space_before": 12, "space_after": 6, "line_spacing": 1.5}
+        },
+        "heading1": {
+            "font": {"name": "黑体", "size": 16, "bold": True, "italic": False},
+            "paragraph": {"alignment": "left", "space_before": 12, "space_after": 6, "line_spacing": 1.5}
+        },
+        "heading2": {
+            "font": {"name": "楷体", "size": 14, "bold": True, "italic": False},
+            "paragraph": {"alignment": "left", "space_before": 10, "space_after": 4, "line_spacing": 1.5}
+        },
+        "heading3": {
+            "font": {"name": "宋体", "size": 12, "bold": True, "italic": False},
+            "paragraph": {"alignment": "left", "space_before": 8, "space_after": 4, "line_spacing": 1.5}
+        },
+        "body": {
+            "font": {"name": "宋体", "size": 12, "bold": False, "italic": False},
+            "paragraph": {
+                "alignment": "justify",
+                "space_before": 0,
+                "space_after": 4,
+                "line_spacing": 1.5,
+                "indent_first_line": 0.35
+            }
+        },
+        "list": {
+            "font": {"name": "宋体", "size": 12, "bold": False, "italic": False},
+            "paragraph": {"alignment": "left", "space_before": 2, "space_after": 2, "line_spacing": 1.5}
+        },
+        "quote": {
+            "font": {"name": "楷体", "size": 11, "bold": False, "italic": True},
+            "paragraph": {"alignment": "left", "space_before": 4, "space_after": 4, "line_spacing": 1.5, "indent_left": 0.4}
+        },
+        "code": {
+            "font": {"name": "Consolas", "size": 10, "bold": False, "italic": False},
+            "paragraph": {"alignment": "left", "space_before": 6, "space_after": 6, "line_spacing": 1.2, "indent_left": 0.4}
+        },
+        "page_margin": {"top": 1.0, "bottom": 1.0, "left": 1.25, "right": 1.25}
+    }
 
 
-@dataclass
-class ParagraphStyle:
-    """段落样式"""
-    alignment: str = "left"  # left, center, right, justify
-    line_spacing: float = 1.5
-    space_before: int = 0  # 磅值
-    space_after: int = 0  # 磅值
-    indent_first_line: float = 0  # 英寸
-    indent_left: float = 0  # 英寸
+# ─────────────────────────────────────────────
+# 字体工具
+# ─────────────────────────────────────────────
+
+def set_run_font(run, font_name: str, size_pt: float, bold: bool = False, italic: bool = False, color_hex: str = None):
+    """设置 run 的字体，正确处理中文字体"""
+    run.font.size = Pt(size_pt)
+    run.font.bold = bold
+    run.font.italic = italic
+
+    if color_hex:
+        color_hex = color_hex.lstrip('#')
+        if len(color_hex) == 6:
+            run.font.color.rgb = RGBColor(
+                int(color_hex[0:2], 16),
+                int(color_hex[2:4], 16),
+                int(color_hex[4:6], 16)
+            )
+
+    # 设置字体名称（同时设置 ASCII 和东亚字体）
+    run.font.name = font_name
+    rPr = run._r.get_or_add_rPr()
+
+    # 设置东亚字体（中文）
+    rFonts = rPr.find(qn('w:rFonts'))
+    if rFonts is None:
+        rFonts = OxmlElement('w:rFonts')
+        rPr.insert(0, rFonts)
+
+    rFonts.set(qn('w:ascii'), font_name)
+    rFonts.set(qn('w:hAnsi'), font_name)
+    rFonts.set(qn('w:eastAsia'), font_name)
+    rFonts.set(qn('w:cs'), font_name)
 
 
-@dataclass
-class DocStyleRules:
-    """文档样式规则"""
-    title: Dict = field(default_factory=lambda: {
-        "font": {"name": "黑体", "size": 22, "bold": True},
-        "paragraph": {"alignment": "center", "space_before": 400, "space_after": 300}
-    })
-    heading1: Dict = field(default_factory=lambda: {
-        "font": {"name": "黑体", "size": 16, "bold": True},
-        "paragraph": {"alignment": "left", "space_before": 300, "space_after": 150}
-    })
-    heading2: Dict = field(default_factory=lambda: {
-        "font": {"name": "楷体", "size": 14, "bold": True},
-        "paragraph": {"alignment": "left", "space_before": 250, "space_after": 100}
-    })
-    heading3: Dict = field(default_factory=lambda: {
-        "font": {"name": "宋体", "size": 12, "bold": True},
-        "paragraph": {"alignment": "left", "space_before": 200, "space_after": 80}
-    })
-    body: Dict = field(default_factory=lambda: {
-        "font": {"name": "宋体", "size": 12, "bold": False},
-        "paragraph": {
-            "alignment": "justify",
-            "line_spacing": 1.5,
-            "space_before": 0,
-            "space_after": 80,
-            "indent_first_line": 0.35  # 首行缩进2字符
-        }
-    })
-    list: Dict = field(default_factory=lambda: {
-        "font": {"name": "宋体", "size": 12, "bold": False},
-        "paragraph": {"alignment": "left", "space_before": 60, "space_after": 60}
-    })
-    quote: Dict = field(default_factory=lambda: {
-        "font": {"name": "楷体", "size": 12, "italic": True},
-        "paragraph": {
-            "alignment": "left",
-            "indent_left": 0.5,
-            "space_before": 100,
-            "space_after": 100
-        }
-    })
-    code: Dict = field(default_factory=lambda: {
-        "font": {"name": "Consolas", "size": 11},
-        "paragraph": {"alignment": "left", "indent_left": 0.5, "space_before": 150, "space_after": 150}
-    })
-    page_margin: Dict = field(default_factory=lambda: {
-        "top": 1.0, "bottom": 1.0, "left": 1.0, "right": 1.0  # 英寸
-    })
+def set_paragraph_format(para, style_cfg: dict):
+    """设置段落格式"""
+    pf = para.paragraph_format
 
-
-def hex_to_rgb(hex_color: str) -> Optional[RGBColor]:
-    """HEX 颜色转 RGBColor"""
-    if not hex_color:
-        return None
-    hex_color = hex_color.lstrip('#')
-    if len(hex_color) == 6:
-        return RGBColor(int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16))
-    return None
-
-
-def inches_from_pt(pt: float) -> float:
-    """磅值转英寸 (1英寸=72磅)"""
-    return pt / 72.0
-
-
-def apply_font(paragraph, font_style: Dict, is_title: bool = False):
-    """应用字体样式"""
-    font = paragraph.font
-    font_name = font_style.get("name", "宋体")
-    font_size = font_style.get("size", 12)
-    font_bold = font_style.get("bold", False)
-    font_italic = font_style.get("italic", False)
-    font_color = font_style.get("color")
-
-    font.name = font_name
-    font.size = Pt(font_size)
-    font.bold = font_bold
-    font.italic = font_italic
-
-    if font_color:
-        rgb = hex_to_rgb(font_color)
-        if rgb:
-            font.color.rgb = rgb
-
-    # 标题需要更大的字号
-    if is_title and font_size < 16:
-        font.size = Pt(font_size + 6)
-
-
-def apply_paragraph_style(paragraph, para_style: Dict, is_body: bool = False):
-    """应用段落样式"""
     alignment_map = {
         "left": WD_ALIGN_PARAGRAPH.LEFT,
         "center": WD_ALIGN_PARAGRAPH.CENTER,
         "right": WD_ALIGN_PARAGRAPH.RIGHT,
         "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
-        "distribute": WD_ALIGN_PARAGRAPH.DISTRIBUTE
     }
+    align = style_cfg.get("alignment", "left")
+    para.alignment = alignment_map.get(align, WD_ALIGN_PARAGRAPH.LEFT)
 
-    # 对齐方式
-    align = para_style.get("alignment", "left")
-    paragraph.alignment = alignment_map.get(align, WD_ALIGN_PARAGRAPH.LEFT)
+    space_before = style_cfg.get("space_before", 0)
+    space_after = style_cfg.get("space_after", 0)
+    if space_before is not None:
+        pf.space_before = Pt(space_before)
+    if space_after is not None:
+        pf.space_after = Pt(space_after)
 
-    # 行距
-    line_spacing = para_style.get("line_spacing", 1.5)
+    line_spacing = style_cfg.get("line_spacing", 1.5)
     if line_spacing:
-        paragraph.paragraph_format.line_spacing = Pt(line_spacing * 12)  # 约1.5倍行距
+        pf.line_spacing = Pt(line_spacing * 12)
 
-    # 段前段后
-    space_before = para_style.get("space_before", 0)
-    space_after = para_style.get("space_after", 0)
-    if space_before:
-        paragraph.paragraph_format.space_before = Pt(space_before)
-    if space_after:
-        paragraph.paragraph_format.space_after = Pt(space_after)
+    indent_first = style_cfg.get("indent_first_line", 0)
+    if indent_first:
+        pf.first_line_indent = Inches(indent_first)
 
-    # 首行缩进
-    if is_body:
-        indent = para_style.get("indent_first_line", 0.35)
-        if indent:
-            paragraph.paragraph_format.first_line_indent = Inches(indent)
+    indent_left = style_cfg.get("indent_left", 0)
+    if indent_left:
+        pf.left_indent = Inches(indent_left)
 
 
-def parse_markdown_element(line: str) -> tuple:
-    """解析 Markdown 元素类型"""
-    line = line.strip()
+# ─────────────────────────────────────────────
+# Markdown 解析
+# ─────────────────────────────────────────────
 
-    # 标题检测（按顺序，从长到短）
-    if line.startswith('### '):
-        return ('heading3', line[4:])
-    if line.startswith('## '):
-        return ('heading2', line[3:])
-    if line.startswith('# '):
-        return ('title', line[2:])
+def parse_inline(text: str) -> List[Tuple[str, dict]]:
+    """解析行内格式，返回 (text, attrs) 列表"""
+    result = []
+    # 处理 **bold**, *italic*, `code`
+    pattern = re.compile(r'(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|(.+?)(?=\*\*|\*|`|$))', re.DOTALL)
+    pos = 0
+    while pos < len(text):
+        # 粗体
+        m = re.match(r'\*\*(.+?)\*\*', text[pos:], re.DOTALL)
+        if m:
+            result.append((m.group(1), {'bold': True}))
+            pos += m.end()
+            continue
+        # 斜体
+        m = re.match(r'\*(.+?)\*', text[pos:], re.DOTALL)
+        if m:
+            result.append((m.group(1), {'italic': True}))
+            pos += m.end()
+            continue
+        # 行内代码
+        m = re.match(r'`(.+?)`', text[pos:], re.DOTALL)
+        if m:
+            result.append((m.group(1), {'code': True}))
+            pos += m.end()
+            continue
+        # 普通文本（到下一个特殊字符）
+        m = re.match(r'(.+?)(?=\*\*|\*|`|$)', text[pos:], re.DOTALL)
+        if m and m.group(1):
+            result.append((m.group(1), {}))
+            pos += m.end()
+        else:
+            if pos < len(text):
+                result.append((text[pos:], {}))
+            break
+    return result if result else [(text, {})]
 
-    # 列表检测
-    if re.match(r'^[-*]\s', line):
-        return ('list', re.sub(r'^[-*]\s', '', line))
-    if re.match(r'^\d+\.\s', line):
-        return ('list', re.sub(r'^\d+\.\s', '', line))
 
-    # 引用检测
-    if line.startswith('>'):
-        return ('quote', line[1:].strip())
-
-    # 代码块开始
-    if line.startswith('```'):
-        return ('code_start', line[3:].strip())
-
-    # 分隔线
-    if re.match(r'^[-*]{3,}$', line):
-        return ('hr', '')
-
-    # 普通段落
-    return ('body', line)
-
-
-def parse_markdown(markdown: str) -> List[Dict]:
+def parse_markdown(markdown: str) -> List[dict]:
     """解析 Markdown 为元素列表"""
     elements = []
     lines = markdown.split('\n')
     i = 0
+    in_code_block = False
+    code_content = []
+    code_lang = ''
 
     while i < len(lines):
-        line = lines[i].rstrip()
+        line = lines[i]
+        stripped = line.strip()
 
-        if not line:
+        # 代码块
+        if stripped.startswith('```'):
+            if not in_code_block:
+                in_code_block = True
+                code_lang = stripped[3:].strip()
+                code_content = []
+            else:
+                in_code_block = False
+                elements.append({'type': 'code', 'content': '\n'.join(code_content), 'lang': code_lang})
+                code_content = []
+                code_lang = ''
             i += 1
             continue
 
-        elem_type, content = parse_markdown_element(line)
-
-        if elem_type == 'code_start':
-            # 收集代码块内容
-            code_content = ''
+        if in_code_block:
+            code_content.append(line)
             i += 1
-            while i < len(lines) and not lines[i].startswith('```'):
-                code_content += lines[i] + '\n'
+            continue
+
+        # 空行
+        if not stripped:
+            i += 1
+            continue
+
+        # 标题
+        if stripped.startswith('#### '):
+            elements.append({'type': 'heading4', 'content': stripped[5:]})
+        elif stripped.startswith('### '):
+            elements.append({'type': 'heading3', 'content': stripped[4:]})
+        elif stripped.startswith('## '):
+            elements.append({'type': 'heading2', 'content': stripped[3:]})
+        elif stripped.startswith('# '):
+            elements.append({'type': 'title', 'content': stripped[2:]})
+
+        # 分隔线
+        elif re.match(r'^[-*_]{3,}$', stripped):
+            elements.append({'type': 'hr'})
+
+        # 引用
+        elif stripped.startswith('>'):
+            content = stripped[1:].strip()
+            elements.append({'type': 'quote', 'content': content})
+
+        # 无序列表
+        elif re.match(r'^[-*+]\s', stripped):
+            content = re.sub(r'^[-*+]\s+', '', stripped)
+            elements.append({'type': 'list_item', 'content': content, 'ordered': False})
+
+        # 有序列表
+        elif re.match(r'^\d+\.\s', stripped):
+            content = re.sub(r'^\d+\.\s+', '', stripped)
+            elements.append({'type': 'list_item', 'content': content, 'ordered': True})
+
+        # 表格
+        elif '|' in stripped and stripped.startswith('|'):
+            # 收集表格行
+            table_rows = []
+            while i < len(lines) and '|' in lines[i].strip() and lines[i].strip().startswith('|'):
+                row_line = lines[i].strip()
+                # 跳过分隔行（如 |---|---|）
+                if re.match(r'^\|[\s\-:]+\|', row_line):
+                    i += 1
+                    continue
+                cells = [c.strip() for c in row_line.strip('|').split('|')]
+                table_rows.append(cells)
                 i += 1
-            elements.append({'type': 'code', 'content': code_content.strip()})
-            i += 1
+            if table_rows:
+                elements.append({'type': 'table', 'rows': table_rows})
             continue
 
-        if elem_type == 'table':
-            # 收集表格
-            table_data = []
-            while i < len(lines) and '|' in lines[i]:
-                row = [c.strip() for c in lines[i].split('|')]
-                if len(row) > 1 and not all(c.startswith('-') or c.startswith(':') for c in row):
-                    table_data.append(row)
-                i += 1
-            elements.append({'type': 'table', 'data': table_data})
-            continue
+        # 普通段落
+        else:
+            elements.append({'type': 'body', 'content': stripped})
 
-        elements.append({'type': elem_type, 'content': content})
         i += 1
 
     return elements
 
 
-def create_element(doc: Document, elem: Dict, style_rules: DocStyleRules):
-    """创建文档元素"""
-    elem_type = elem['type']
-    content = elem.get('content', '')
+# ─────────────────────────────────────────────
+# DOCX 元素创建
+# ─────────────────────────────────────────────
 
-    if elem_type == 'title':
-        p = doc.add_paragraph()
-        p.style = doc.styles['Title']
-        apply_font(p, style_rules.title["font"], is_title=True)
-        apply_paragraph_style(p, style_rules.title["paragraph"])
-        run = p.add_run(content)
-        apply_font(p, style_rules.title["font"], is_title=True)
+def add_paragraph_with_style(doc: Document, content: str, style_key: str, rules: dict) -> None:
+    """添加带样式的段落"""
+    style_cfg = rules.get(style_key, rules['body'])
+    font_cfg = style_cfg.get('font', {})
+    para_cfg = style_cfg.get('paragraph', {})
 
-    elif elem_type == 'heading1':
-        p = doc.add_paragraph()
-        p.style = doc.styles['Heading 1']
-        apply_font(p, style_rules.heading1["font"])
-        apply_paragraph_style(p, style_rules.heading1["paragraph"])
-        p.add_run(content)
+    para = doc.add_paragraph()
+    set_paragraph_format(para, para_cfg)
 
-    elif elem_type == 'heading2':
-        p = doc.add_paragraph()
-        p.style = doc.styles['Heading 2']
-        apply_font(p, style_rules.heading2["font"])
-        apply_paragraph_style(p, style_rules.heading2["paragraph"])
-        p.add_run(content)
-
-    elif elem_type == 'heading3':
-        p = doc.add_paragraph()
-        p.style = doc.styles['Heading 3']
-        apply_font(p, style_rules.heading3["font"])
-        apply_paragraph_style(p, style_rules.heading3["paragraph"])
-        p.add_run(content)
-
-    elif elem_type == 'body':
-        p = doc.add_paragraph()
-        apply_font(p, style_rules.body["font"])
-        apply_paragraph_style(p, style_rules.body["paragraph"], is_body=True)
-        p.add_run(content)
-
-    elif elem_type == 'list':
-        p = doc.add_paragraph()
-        apply_font(p, style_rules.list["font"])
-        apply_paragraph_style(p, style_rules.list["paragraph"])
-        # 添加列表符号
-        run = p.add_run('• ')
-        p.add_run(content)
-
-    elif elem_type == 'quote':
-        p = doc.add_paragraph()
-        apply_font(p, style_rules.quote["font"])
-        apply_paragraph_style(p, style_rules.quote["paragraph"])
-        # 添加左边框
-        p.paragraph_format.left_indent = Inches(0.5)
-        p.add_run(content)
-
-    elif elem_type == 'code':
-        p = doc.add_paragraph()
-        apply_font(p, style_rules.code["font"])
-        apply_paragraph_style(p, style_rules.code["paragraph"])
-        p.paragraph_format.left_indent = Inches(0.5)
-        p.add_run(content)
-
-    elif elem_type == 'hr':
-        p = doc.add_paragraph()
-        p.add_run('─' * 30)
-
-    elif elem_type == 'table':
-        create_table(doc, elem['data'], style_rules)
+    # 解析行内格式
+    inline_parts = parse_inline(content)
+    for text, attrs in inline_parts:
+        if not text:
+            continue
+        run = para.add_run(text)
+        font_name = 'Consolas' if attrs.get('code') else font_cfg.get('name', '宋体')
+        font_size = 10 if attrs.get('code') else font_cfg.get('size', 12)
+        is_bold = attrs.get('bold', font_cfg.get('bold', False))
+        is_italic = attrs.get('italic', font_cfg.get('italic', False))
+        set_run_font(run, font_name, font_size, bold=is_bold, italic=is_italic)
 
 
-def create_table(doc: Document, table_data: List[List[str]], style_rules: DocStyleRules):
-    """创建表格"""
-    if not table_data:
+def add_quote_paragraph(doc: Document, content: str, rules: dict) -> None:
+    """添加引用段落（带左边框）"""
+    style_cfg = rules.get('quote', rules['body'])
+    font_cfg = style_cfg.get('font', {})
+    para_cfg = style_cfg.get('paragraph', {})
+
+    para = doc.add_paragraph()
+    set_paragraph_format(para, para_cfg)
+
+    run = para.add_run(content)
+    set_run_font(run, font_cfg.get('name', '楷体'), font_cfg.get('size', 11),
+                 bold=font_cfg.get('bold', False), italic=font_cfg.get('italic', True))
+
+    # 添加左边框
+    pPr = para._p.get_or_add_pPr()
+    pBdr = OxmlElement('w:pBdr')
+    left = OxmlElement('w:left')
+    left.set(qn('w:val'), 'single')
+    left.set(qn('w:sz'), '6')
+    left.set(qn('w:space'), '4')
+    left.set(qn('w:color'), '888888')
+    pBdr.append(left)
+    pPr.append(pBdr)
+
+    # 灰色背景
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:val'), 'clear')
+    shd.set(qn('w:color'), 'auto')
+    shd.set(qn('w:fill'), 'F5F5F5')
+    pPr.append(shd)
+
+
+def add_code_paragraph(doc: Document, content: str, rules: dict) -> None:
+    """添加代码块段落"""
+    style_cfg = rules.get('code', rules['body'])
+    font_cfg = style_cfg.get('font', {})
+    para_cfg = style_cfg.get('paragraph', {})
+
+    for line in content.split('\n'):
+        para = doc.add_paragraph()
+        set_paragraph_format(para, para_cfg)
+
+        run = para.add_run(line if line else ' ')
+        set_run_font(run, font_cfg.get('name', 'Consolas'), font_cfg.get('size', 10))
+
+        # 灰色背景
+        pPr = para._p.get_or_add_pPr()
+        shd = OxmlElement('w:shd')
+        shd.set(qn('w:val'), 'clear')
+        shd.set(qn('w:color'), 'auto')
+        shd.set(qn('w:fill'), 'F0F0F0')
+        pPr.append(shd)
+
+
+def add_table(doc: Document, rows: List[List[str]], rules: dict) -> None:
+    """添加表格"""
+    if not rows:
         return
 
-    rows = len(table_data)
-    cols = max(len(row) for row in table_data)
-
-    table = doc.add_table(rows=rows, cols=cols)
+    num_cols = max(len(row) for row in rows)
+    table = doc.add_table(rows=len(rows), cols=num_cols)
     table.style = 'Table Grid'
 
-    for i, row_data in enumerate(table_data):
+    body_cfg = rules.get('body', {})
+    font_cfg = body_cfg.get('font', {})
+
+    for i, row_data in enumerate(rows):
+        row = table.rows[i]
         for j, cell_text in enumerate(row_data):
-            cell = table.cell(i, j)
-            cell.text = cell_text
-            paragraph = cell.paragraphs[0]
+            if j >= num_cols:
+                break
+            cell = row.cells[j]
+            cell.text = ''
+            para = cell.paragraphs[0]
+            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-            # 表头样式
-            if i == 0:
-                apply_font(paragraph, {"name": "宋体", "size": 12, "bold": True})
-                shading = cell._tc.get_or_add_tcPr()
-                shading.append(doc._element.from_xml(
-                    '<w:shd {} w:fill="E6E6E6"/>'.format(
-                        'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
-                    )
-                ))
-            else:
-                apply_font(paragraph, style_rules.body["font"])
+            run = para.add_run(cell_text)
+            is_header = (i == 0)
+            set_run_font(run, font_cfg.get('name', '宋体'), font_cfg.get('size', 12), bold=is_header)
 
-            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            # 表头背景
+            if is_header:
+                tc = cell._tc
+                tcPr = tc.get_or_add_tcPr()
+                shd = OxmlElement('w:shd')
+                shd.set(qn('w:val'), 'clear')
+                shd.set(qn('w:color'), 'auto')
+                shd.set(qn('w:fill'), 'DAEEF3')
+                tcPr.append(shd)
 
 
-def extract_styles_from_docx(docx_path: str) -> Dict:
+# ─────────────────────────────────────────────
+# 主要功能
+# ─────────────────────────────────────────────
+
+def extract_styles_from_docx(docx_path: str) -> dict:
     """从 DOCX 模板提取样式规则"""
-    rules = DocStyleRules()
+    rules = default_style_rules()
 
     try:
         doc = Document(docx_path)
 
-        # 提取默认段落样式
-        doc_default = doc.styles['Normal']
-        if doc_default:
-            font = doc_default.font
-            if font.name:
-                rules.body["font"]["name"] = font.name
-            if font.size:
-                rules.body["font"]["size"] = int(font.size.pt)
+        # 提取正文默认样式
+        try:
+            normal = doc.styles['Normal']
+            if normal.font.name:
+                rules['body']['font']['name'] = normal.font.name
+            if normal.font.size:
+                rules['body']['font']['size'] = round(normal.font.size.pt)
+        except Exception:
+            pass
 
         # 提取标题样式
-        for heading_level in ['Heading 1', 'Heading 2', 'Heading 3']:
-            heading = doc.styles.get(heading_level)
-            if heading:
-                heading_font = heading.font
-                key = heading_level.lower().replace(' ', '')
-                if heading_font.name:
-                    rules.__dict__[key]["font"]["name"] = heading_font.name
-                if heading_font.size:
-                    rules.__dict__[key]["font"]["size"] = int(heading_font.size.pt)
+        heading_map = {
+            'Heading 1': 'heading1',
+            'Heading 2': 'heading2',
+            'Heading 3': 'heading3',
+        }
+        for word_style, key in heading_map.items():
+            try:
+                style = doc.styles[word_style]
+                if style.font.name:
+                    rules[key]['font']['name'] = style.font.name
+                if style.font.size:
+                    rules[key]['font']['size'] = round(style.font.size.pt)
+                if style.font.bold is not None:
+                    rules[key]['font']['bold'] = style.font.bold
+            except Exception:
+                pass
 
-        # 提取页面设置
-        section = doc.sections[0] if doc.sections else None
-        if section:
-            rules.page_margin["top"] = section.top_margin.inches
-            rules.page_margin["bottom"] = section.bottom_margin.inches
-            rules.page_margin["left"] = section.left_margin.inches
-            rules.page_margin["right"] = section.right_margin.inches
+        # 提取页面边距
+        try:
+            section = doc.sections[0]
+            rules['page_margin']['top'] = round(section.top_margin.inches, 2)
+            rules['page_margin']['bottom'] = round(section.bottom_margin.inches, 2)
+            rules['page_margin']['left'] = round(section.left_margin.inches, 2)
+            rules['page_margin']['right'] = round(section.right_margin.inches, 2)
+        except Exception:
+            pass
 
     except Exception as e:
-        print(f"警告: 无法解析模板样式，使用默认值: {e}")
+        print(f"警告: 无法解析模板样式，使用默认值: {e}", file=sys.stderr)
 
-    return asdict(rules)
+    return rules
 
 
-def markdown_to_docx(markdown: str, output_path: str, style_rules: Optional[Dict] = None):
+def markdown_to_docx(markdown: str, output_path: str, style_rules: Optional[dict] = None) -> str:
     """将 Markdown 转换为带样式的 DOCX"""
-    # 使用默认样式或传入的样式
-    if style_rules is None:
-        style_rules = asdict(DocStyleRules())
+    rules = style_rules if style_rules else default_style_rules()
 
-    # 创建文档
     doc = Document()
 
     # 设置页面边距
-    if "page_margin" in style_rules:
-        margin = style_rules["page_margin"]
-        section = doc.sections[0]
-        section.top_margin = Inches(margin.get("top", 1.0))
-        section.bottom_margin = Inches(margin.get("bottom", 1.0))
-        section.left_margin = Inches(margin.get("left", 1.0))
-        section.right_margin = Inches(margin.get("right", 1.0))
+    margin = rules.get('page_margin', {})
+    section = doc.sections[0]
+    section.top_margin = Inches(margin.get('top', 1.0))
+    section.bottom_margin = Inches(margin.get('bottom', 1.0))
+    section.left_margin = Inches(margin.get('left', 1.25))
+    section.right_margin = Inches(margin.get('right', 1.25))
 
     # 解析 Markdown
     elements = parse_markdown(markdown)
 
-    # 创建样式规则对象
-    rules = DocStyleRules(**style_rules)
-
-    # 添加元素
     for elem in elements:
-        create_element(doc, elem, rules)
+        etype = elem['type']
 
-    # 保存文档
+        if etype == 'title':
+            add_paragraph_with_style(doc, elem['content'], 'title', rules)
+
+        elif etype == 'heading2':
+            add_paragraph_with_style(doc, elem['content'], 'heading1', rules)
+
+        elif etype == 'heading3':
+            add_paragraph_with_style(doc, elem['content'], 'heading2', rules)
+
+        elif etype == 'heading4':
+            add_paragraph_with_style(doc, elem['content'], 'heading3', rules)
+
+        elif etype == 'body':
+            add_paragraph_with_style(doc, elem['content'], 'body', rules)
+
+        elif etype == 'list_item':
+            style_cfg = rules.get('list', rules['body'])
+            font_cfg = style_cfg.get('font', {})
+            para_cfg = dict(style_cfg.get('paragraph', {}))
+            para_cfg['indent_left'] = 0.3
+            para_cfg['indent_first_line'] = 0
+
+            para = doc.add_paragraph()
+            set_paragraph_format(para, para_cfg)
+
+            bullet = '• ' if not elem.get('ordered') else ''
+            run = para.add_run(bullet + elem['content'])
+            set_run_font(run, font_cfg.get('name', '宋体'), font_cfg.get('size', 12))
+
+        elif etype == 'quote':
+            add_quote_paragraph(doc, elem['content'], rules)
+
+        elif etype == 'code':
+            add_code_paragraph(doc, elem['content'], rules)
+
+        elif etype == 'table':
+            add_table(doc, elem['rows'], rules)
+
+        elif etype == 'hr':
+            para = doc.add_paragraph()
+            run = para.add_run('─' * 40)
+            run.font.color.rgb = RGBColor(0xCC, 0xCC, 0xCC)
+
     doc.save(output_path)
     return output_path
 
 
+# ─────────────────────────────────────────────
+# 命令行入口
+# ─────────────────────────────────────────────
+
 def main():
-    """命令行入口"""
     if len(sys.argv) < 3:
-        print("用法:")
-        print("  提取样式: python docforge_py.py extract <input.docx> <output.json>")
-        print("  生成文档: python docforge_py.py generate <input.md> <output.docx> [--style <style.json>]")
+        print("用法:", file=sys.stderr)
+        print("  提取样式: python docforge_py.py extract <input.docx> <output.json>", file=sys.stderr)
+        print("  生成文档: python docforge_py.py generate <input.md> <output.docx> [--style <style.json>]", file=sys.stderr)
         sys.exit(1)
 
     command = sys.argv[1]
 
     if command == "extract":
         if len(sys.argv) < 4:
-            print("错误: 需要指定输出文件")
+            print("错误: 需要指定输出文件", file=sys.stderr)
             sys.exit(1)
         docx_path = sys.argv[2]
         output_path = sys.argv[3]
 
         if not os.path.exists(docx_path):
-            print(f"错误: 文件不存在: {docx_path}")
+            print(f"错误: 文件不存在: {docx_path}", file=sys.stderr)
             sys.exit(1)
 
         styles = extract_styles_from_docx(docx_path)
-
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(styles, f, ensure_ascii=False, indent=2)
-
         print(f"样式已提取到: {output_path}")
 
     elif command == "generate":
         if len(sys.argv) < 4:
-            print("错误: 需要指定输出文件")
+            print("错误: 需要指定输出文件", file=sys.stderr)
             sys.exit(1)
 
         md_path = sys.argv[2]
         output_path = sys.argv[3]
 
-        # 解析选项
         style_file = None
         for i in range(4, len(sys.argv)):
             if sys.argv[i] == "--style" and i + 1 < len(sys.argv):
                 style_file = sys.argv[i + 1]
 
         if not os.path.exists(md_path):
-            print(f"错误: 文件不存在: {md_path}")
+            print(f"错误: 文件不存在: {md_path}", file=sys.stderr)
             sys.exit(1)
 
-        # 读取 Markdown
         with open(md_path, 'r', encoding='utf-8') as f:
             markdown = f.read()
 
-        # 读取样式
         style_rules = None
         if style_file and os.path.exists(style_file):
             with open(style_file, 'r', encoding='utf-8') as f:
                 style_rules = json.load(f)
 
-        # 生成 DOCX
         result_path = markdown_to_docx(markdown, output_path, style_rules)
         print(f"DOCX 已生成: {result_path}")
 
     else:
-        print(f"未知命令: {command}")
+        print(f"未知命令: {command}", file=sys.stderr)
         sys.exit(1)
 
 

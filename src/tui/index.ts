@@ -328,6 +328,16 @@ async function runTemplateFlow(controller: TuiController): Promise<void> {
   });
   const description = isCancel(descriptionRaw) ? "" : String(descriptionRaw);
 
+  // 输入目标字数
+  const wordCountRaw = await text({
+    message: "目标字数 (可选，默认3000):",
+    placeholder: "例如: 2000、5000",
+  });
+  const wordCountStr = isCancel(wordCountRaw) ? "" : String(wordCountRaw);
+  const wordCount = wordCountStr && /^\d+$/.test(wordCountStr.trim())
+    ? parseInt(wordCountStr.trim(), 10)
+    : 3000;
+
   // 显示进度 - 新流程：OCR提取 → LLM生成 → 文档合成
   const steps = [
     { icon: '📄', name: 'ocr_extraction', text: 'OCR提取模板样式' },
@@ -408,6 +418,7 @@ async function runTemplateFlow(controller: TuiController): Promise<void> {
       topic,
       description,
       {
+        wordCount,
         onProgress: (progress) => {
           const stepIndex = steps.findIndex(s => s.name === progress.step);
           if (stepIndex >= 0) {

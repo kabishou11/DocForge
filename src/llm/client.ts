@@ -392,20 +392,21 @@ ${outline.sections.map((s, i) => `${'#'.repeat(s.level)} ${s.title}\n${s.summary
     templateContent: string,
     topic: string,
     description: string,
-    stylePrompt?: string
+    stylePrompt?: string,
+    wordCount?: number
   ): Promise<string> {
-    // 截取模板的关键部分（标题结构和部分内容示例）
-    // 只取前 2000 字符，减少请求大小
-    const truncatedTemplate = templateContent.length > 2000
-      ? templateContent.slice(0, 2000) + '\n...（更多内容省略）'
+    // 取前 4000 字符作为风格参考，保留更多结构信息
+    const truncatedTemplate = templateContent.length > 4000
+      ? templateContent.slice(0, 4000) + '\n...（更多内容省略）'
       : templateContent;
 
-    let prompt = `请按照以下参考文档的风格，生成一篇新文档。
+    const targetWords = wordCount || 3000;
 
-【参考文档风格摘要】
+    let prompt = `你是一位专业的文档撰写专家。请严格按照以下参考文档的风格和结构，生成一篇新文档。
+
+【参考文档（用于学习风格和结构）】
 ${truncatedTemplate}`;
 
-    // 添加额外的样式提示
     if (stylePrompt) {
       prompt += `\n\n${stylePrompt}`;
     }
@@ -414,16 +415,20 @@ ${truncatedTemplate}`;
 
 【新文档要求】
 主题：${topic}
-描述：${description}
+描述：${description || '无'}
+目标字数：约 ${targetWords} 字
 
-要求：
-1. 参考文档的标题层级结构（如：一、XXX；二、XXX；3.1 XXX；3.2 XXX）
-2. 参考文档的专业语气和格式
-3. 使用中文标点符号（，。：；""等）
-4. 内容要详实、深入、专业
-5. 生成完整的可直接使用的文档
+【严格要求】
+1. 完全参考上方文档的标题层级结构（如：一、XXX；（一）XXX；1. XXX）
+2. 保持相同的专业语气、行文风格和段落密度
+3. 每个章节内容充实，不得出现空洞的标题
+4. 使用中文标点符号（，。：；""等），不使用英文标点
+5. 正文段落首行缩进两个字符
+6. 字数要求：总字数控制在 ${targetWords} 字左右（±20%）
+7. 输出纯 Markdown 格式，不要添加任何解释或说明
+8. 不要在文档中提及"参考文档"或"根据模板"等字样
 
-请直接生成文档内容，无需提及"参考文档"。`;
+请直接输出文档内容：`;
 
     let lastError: Error | null = null;
     const maxRetries = 2;
@@ -435,7 +440,7 @@ ${truncatedTemplate}`;
           messages: [{ role: 'user', content: prompt }],
           enableThinking: true,
           temperature: 0.7,
-          maxTokens: 8192
+          maxTokens: 16384
         });
 
         return extractText(response.choices[0].message.content);

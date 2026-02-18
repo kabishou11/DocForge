@@ -6,8 +6,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
+import * as os from 'os';
 
-const PYTHON_SCRIPT = path.join(__dirname, 'docforge_py.py');
+// 项目根目录（从 dist/services/ 向上两级）
+const PROJECT_ROOT = path.join(__dirname, '..', '..');
+const PYTHON_SCRIPT = path.join(PROJECT_ROOT, 'scripts', 'docforge_py.py');
+const VENV_PYTHON = path.join(PROJECT_ROOT, '.venv', 'Scripts', 'python.exe');
 
 export interface PythonStyleRules {
   title: {
@@ -63,10 +67,11 @@ export interface PythonDocxOptions {
  */
 function runPythonScript(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const venvPython = path.join(__dirname, '..', '.venv', 'Scripts', 'python.exe');
+    // 优先使用 venv，否则回退到系统 Python
+    const pythonExe = fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python';
 
-    const child = spawn(venvPython, [PYTHON_SCRIPT, ...args], {
-      cwd: __dirname
+    const child = spawn(pythonExe, [PYTHON_SCRIPT, ...args], {
+      cwd: PROJECT_ROOT
     });
 
     let stdout = '';
@@ -98,7 +103,7 @@ function runPythonScript(args: string[]): Promise<string> {
  * 从 DOCX 模板提取样式
  */
 export async function extractStylesFromDocx(docxPath: string): Promise<PythonStyleRules> {
-  const tempJson = path.join(__dirname, `temp_styles_${Date.now()}.json`);
+  const tempJson = path.join(os.tmpdir(), `docforge_styles_${Date.now()}.json`);
 
   try {
     await runPythonScript(['extract', docxPath, tempJson]);
@@ -122,15 +127,14 @@ export async function extractStylesFromDocx(docxPath: string): Promise<PythonSty
 export async function generateDocxWithPython(options: PythonDocxOptions): Promise<string> {
   const { markdown, outputPath, styleRules, addTimestamp } = options;
 
-  // 保存 Markdown 到临时文件
-  const tempMd = path.join(__dirname, `temp_${Date.now()}.md`);
+  // 使用系统临时目录存放临时文件
+  const tempMd = path.join(os.tmpdir(), `docforge_${Date.now()}.md`);
   fs.writeFileSync(tempMd, markdown, 'utf-8');
 
-  // 保存样式到临时文件
   let tempStyle = '';
   if (styleRules) {
-    tempStyle = path.join(__dirname, `temp_style_${Date.now()}.json`);
-    fs.writeFileSync(tempStyle, JSON.stringify(styleRules), 'utf-8');
+    tempStyle = path.join(os.tmpdir(), `docforge_style_${Date.now()}.json`);
+    fs.writeFileSync(tempStyle, JSON.stringify(styleRules, null, 2), 'utf-8');
   }
 
   try {
