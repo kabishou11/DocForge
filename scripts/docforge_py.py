@@ -132,7 +132,8 @@ def set_paragraph_format(para, style_cfg: dict):
 
     line_spacing = style_cfg.get("line_spacing", 1.5)
     if line_spacing:
-        pf.line_spacing = Pt(line_spacing * 12)
+        pf.line_spacing = line_spacing          # float = 倍数行距
+        pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
 
     indent_first = style_cfg.get("indent_first_line", 0)
     if indent_first:
@@ -288,6 +289,10 @@ def add_paragraph_with_style(doc: Document, content: str, style_key: str, rules:
 
     para = doc.add_paragraph()
     set_paragraph_format(para, para_cfg)
+
+    # 标题：与下段保持同页，防止孤立标题
+    if style_key in ('title', 'heading1', 'heading2', 'heading3'):
+        para.paragraph_format.keep_with_next = True
 
     # 解析行内格式
     inline_parts = parse_inline(content)

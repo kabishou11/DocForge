@@ -633,7 +633,10 @@ export class TuiController extends EventEmitter {
    * 将 StyleRules 转换为 Python 样式格式
    */
   private convertToPythonStyle(rules: any): PythonStyleRules {
-    const ptToTwips = (pt: number) => pt * 20;  // 1pt = 20 twips
+    // StyleRules 中的间距值是 twips（1pt = 20 twips），需转换为 pt 传给 Python
+    const twipsToPt = (twips: number) => Math.round(twips / 20);
+    // twips 转英寸（用于缩进）
+    const twipsToInch = (twips: number) => Math.round(twips / 1440 * 100) / 100;
 
     return {
       title: {
@@ -644,8 +647,8 @@ export class TuiController extends EventEmitter {
         },
         paragraph: {
           alignment: this.mapAlignment(rules.title?.alignment),
-          space_before: ptToTwips(rules.title?.spaceBefore || 400),
-          space_after: ptToTwips(rules.title?.spaceAfter || 300)
+          space_before: twipsToPt(rules.title?.spaceBefore || 240),
+          space_after: twipsToPt(rules.title?.spaceAfter || 120)
         }
       },
       heading1: {
@@ -656,8 +659,8 @@ export class TuiController extends EventEmitter {
         },
         paragraph: {
           alignment: this.mapAlignment(rules.heading1?.alignment),
-          space_before: ptToTwips(rules.heading1?.spaceBefore || 300),
-          space_after: ptToTwips(rules.heading1?.spaceAfter || 150)
+          space_before: twipsToPt(rules.heading1?.spaceBefore || 240),
+          space_after: twipsToPt(rules.heading1?.spaceAfter || 120)
         }
       },
       heading2: {
@@ -668,8 +671,8 @@ export class TuiController extends EventEmitter {
         },
         paragraph: {
           alignment: this.mapAlignment(rules.heading2?.alignment),
-          space_before: ptToTwips(rules.heading2?.spaceBefore || 250),
-          space_after: ptToTwips(rules.heading2?.spaceAfter || 100)
+          space_before: twipsToPt(rules.heading2?.spaceBefore || 200),
+          space_after: twipsToPt(rules.heading2?.spaceAfter || 80)
         }
       },
       heading3: {
@@ -680,8 +683,8 @@ export class TuiController extends EventEmitter {
         },
         paragraph: {
           alignment: this.mapAlignment(rules.heading3?.alignment),
-          space_before: ptToTwips(rules.heading3?.spaceBefore || 200),
-          space_after: ptToTwips(rules.heading3?.spaceAfter || 80)
+          space_before: twipsToPt(rules.heading3?.spaceBefore || 160),
+          space_after: twipsToPt(rules.heading3?.spaceAfter || 60)
         }
       },
       body: {
@@ -693,9 +696,9 @@ export class TuiController extends EventEmitter {
         paragraph: {
           alignment: this.mapAlignment(rules.body?.alignment),
           line_spacing: rules.body?.lineSpacing || 1.5,
-          space_before: ptToTwips(rules.body?.spaceBefore || 0),
-          space_after: ptToTwips(rules.body?.spaceAfter || 80),
-          indent_first_line: rules.body?.indent ? rules.body.indent / 240 : 0.35  // 缩进转英寸
+          space_before: twipsToPt(rules.body?.spaceBefore || 0),
+          space_after: twipsToPt(rules.body?.spaceAfter || 60),
+          indent_first_line: rules.body?.indent ? twipsToInch(rules.body.indent) : 0.33
         }
       },
       list: {
@@ -706,8 +709,8 @@ export class TuiController extends EventEmitter {
         },
         paragraph: {
           alignment: this.mapAlignment(rules.list?.alignment),
-          space_before: ptToTwips(rules.list?.spaceBefore || 60),
-          space_after: ptToTwips(rules.list?.spaceAfter || 60)
+          space_before: twipsToPt(rules.list?.spaceBefore || 40),
+          space_after: twipsToPt(rules.list?.spaceAfter || 40)
         }
       },
       quote: {
@@ -718,9 +721,9 @@ export class TuiController extends EventEmitter {
         },
         paragraph: {
           alignment: this.mapAlignment(rules.quote?.alignment),
-          indent_left: rules.quote?.indent ? rules.quote.indent / 240 : 0.5,
-          space_before: ptToTwips(rules.quote?.spaceBefore || 100),
-          space_after: ptToTwips(rules.quote?.spaceAfter || 100)
+          indent_left: rules.quote?.indent ? twipsToInch(rules.quote.indent) : 0.4,
+          space_before: twipsToPt(rules.quote?.spaceBefore || 80),
+          space_after: twipsToPt(rules.quote?.spaceAfter || 80)
         }
       },
       code: {
@@ -730,16 +733,16 @@ export class TuiController extends EventEmitter {
         },
         paragraph: {
           alignment: this.mapAlignment(rules.code?.alignment),
-          indent_left: rules.code?.indent ? rules.code.indent / 240 : 0.5,
-          space_before: ptToTwips(rules.code?.spaceBefore || 150),
-          space_after: ptToTwips(rules.code?.spaceAfter || 150)
+          indent_left: rules.code?.indent ? twipsToInch(rules.code.indent) : 0.4,
+          space_before: twipsToPt(rules.code?.spaceBefore || 120),
+          space_after: twipsToPt(rules.code?.spaceAfter || 120)
         }
       },
       page_margin: {
         top: rules.pageMargin?.top ? rules.pageMargin.top / 1440 : 1.0,
         bottom: rules.pageMargin?.bottom ? rules.pageMargin.bottom / 1440 : 1.0,
-        left: rules.pageMargin?.left ? rules.pageMargin.left / 1440 : 1.0,
-        right: rules.pageMargin?.right ? rules.pageMargin.right / 1440 : 1.0
+        left: rules.pageMargin?.left ? rules.pageMargin.left / 1440 : 1.25,
+        right: rules.pageMargin?.right ? rules.pageMargin.right / 1440 : 1.25
       }
     };
   }
