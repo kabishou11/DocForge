@@ -221,10 +221,11 @@ class RealtimeInput {
           return;
         }
 
-        // Escape - 取消并返回
+        // Escape - 取消并返回（不退出整个程序）
         if (key.name === "escape") {
           this.cleanup();
-          resolve(null);
+          // 返回空字符串而非 null，避免退出主循环
+          resolve("");
           return;
         }
 
@@ -268,16 +269,15 @@ class RealtimeInput {
   }
 
   private cleanup(): void {
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(false);
-    }
+    // 先移除监听器，再改 raw mode，避免竞态
     if (this.keyHandler) {
       process.stdin.removeListener("keypress", this.keyHandler);
+      this.keyHandler = null;
     }
-    // 确保 stdin 不是 paused
-    if (process.stdin.isPaused()) {
-      process.stdin.resume();
+    if (process.stdin.isTTY && process.stdin.isRaw) {
+      process.stdin.setRawMode(false);
     }
+    process.stdin.pause();
   }
 
   private render(): void {
@@ -352,8 +352,8 @@ export async function startTui(options: {
       const result = await input.start();
 
       if (result === null) {
-        // 用户取消
-        break;
+        // 只有真正的退出信号才 break
+        continue;
       }
 
       if (!result) {

@@ -454,6 +454,124 @@ ${truncatedTemplate}`;
 
     throw lastError || new Error('生成文档失败');
   }
+
+  /**
+   * 从模板内容生成结构化大纲（用于分段生成）
+   */
+  async generateOutlineFromTemplate(
+    templateContent: string,
+    topic: string,
+    description: string,
+    targetWords: number = 3000
+  ): Promise<{ sections: Array<{ title: string; level: number; keywords: string; targetWords: number }> }> {
+    const truncated = templateContent.length > 3000
+      ? templateContent.slice(0, 3000) + '\n...'
+      : templateContent;
+
+    const sectionCount = Math.max(5, Math.round(targetWords / 500));
+
+    const prompt = `你是文档结构专家。分析参考文档的结构，为新主题生成大纲。
+
+【参考文档结构】
+${truncated}
+
+【新文档】
+主题：${topic}
+描述：${description || '无'}
+目标字数：${targetWords} 字
+目标章节数：约 ${sectionCount} 个章节
+
+请输出 JSON 格式大纲（不要输出其他内容）：
+{
+  "sections": [
+    {"title": "章节标题", "level": 1, "keywords": "搜索关键词", "targetWords": 500}
+  ]
+}
+
+要求：
+- level 1 = 一级标题（##），level 2 = 二级标题（###）
+- keywords 用于联网搜索该章节相关最新信息
+- targetWords 各章节字数之和应约等于 ${targetWords}
+- 参考原文档的标题层级和结构风格`;
+
+    const response = await this.chat({
+      model: this.modelId,
+      messages: [{ role: 'user', content: prompt }],
+      enableThinking: false,
+      temperature: 0.5,
+      maxTokens: 2048
+    });
+
+    const content = extractText(response.choices[0].message.content);
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    throw new Error('大纲解析失败');
+  }
+
+  /**
+   * 流式生成单个章节内容
+   */
+  async streamSectionContent(
+    options: {
+      topic: string;
+      sectionTitle: string;
+      sectionLevel: number;
+      targetWords: number;
+      stylePrompt: string;
+      previousContext: string;
+      searchContext: string;
+    },
+    onChunk: (text: string) => void
+  ): Promise<string> {
+    const { topic, sectionTitle, sectionLevel, targetWords, stylePrompt, previousContext, searchContext } = options;
+
+    const headingMark = '#'.repeat(sectionLevel + 1); // level 1 → ##, level 2 → ###
+
+    let prompt = `你是专业文档撰写专家。请为以下文档撰写一个章节。
+
+【文档主题】${topic}
+【当前章节】${headingMark} ${sectionTitle}
+【目标字数】约 ${targetWords} 字`;
+
+    if (searchContext) {
+      prompt += `\n\n${searchContext}`;
+    }
+
+    if (previousContext) {
+      prompt += `\n\n【前文摘要（保持连贯性）】\n${previousContext}`;
+    }
+
+    prompt += `\n\n${stylePrompt}
+
+【输出要求】
+1. 直接输出该章节的 Markdown 内容（以 ${headingMark} ${sectionTitle} 开头）
+2. 内容充实专业，每段不少于80字，至少3个段落
+3. 适当使用列表、数据增强说服力
+4. 使用中文标点，正文段落体现首行缩进
+5. 不要输出任何解释，只输出章节内容`;
+
+    let accumulated = '';
+
+    const stream = this.chatStream({
+      model: this.modelId,
+      messages: [{ role: 'user', content: prompt }],
+      enableThinking: true,
+      temperature: 0.7,
+      maxTokens: Math.max(4096, targetWords * 3)
+    });
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        accumulated += delta;
+        onChunk(delta);
+      }
+    }
+
+    return accumulated;
+  }
 }
 
 /**

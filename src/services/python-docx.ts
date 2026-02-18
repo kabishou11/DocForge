@@ -183,22 +183,23 @@ async function addTimestampToDocx(docxPath: string): Promise<void> {
  * 获取默认样式规则
  */
 export function getDefaultStyleRules(): PythonStyleRules {
+  // 所有 space_before/space_after 单位为 pt（传给 Python Pt()）
   return {
     title: {
       font: { name: '黑体', size: 22, bold: true },
-      paragraph: { alignment: 'center', space_before: 400, space_after: 300 }
+      paragraph: { alignment: 'center', space_before: 12, space_after: 6 }
     },
     heading1: {
       font: { name: '黑体', size: 16, bold: true },
-      paragraph: { alignment: 'left', space_before: 300, space_after: 150 }
+      paragraph: { alignment: 'left', space_before: 12, space_after: 6 }
     },
     heading2: {
       font: { name: '楷体', size: 14, bold: true },
-      paragraph: { alignment: 'left', space_before: 250, space_after: 100 }
+      paragraph: { alignment: 'left', space_before: 10, space_after: 4 }
     },
     heading3: {
       font: { name: '宋体', size: 12, bold: true },
-      paragraph: { alignment: 'left', space_before: 200, space_after: 80 }
+      paragraph: { alignment: 'left', space_before: 8, space_after: 4 }
     },
     body: {
       font: { name: '宋体', size: 12, bold: false },
@@ -206,23 +207,23 @@ export function getDefaultStyleRules(): PythonStyleRules {
         alignment: 'justify',
         line_spacing: 1.5,
         space_before: 0,
-        space_after: 80,
-        indent_first_line: 0.35
+        space_after: 3,
+        indent_first_line: 0.33
       }
     },
     list: {
       font: { name: '宋体', size: 12, bold: false },
-      paragraph: { alignment: 'left', space_before: 60, space_after: 60 }
+      paragraph: { alignment: 'left', space_before: 2, space_after: 2 }
     },
     quote: {
       font: { name: '楷体', size: 12, italic: true },
-      paragraph: { alignment: 'left', indent_left: 0.5, space_before: 100, space_after: 100 }
+      paragraph: { alignment: 'left', indent_left: 0.4, space_before: 4, space_after: 4 }
     },
     code: {
       font: { name: 'Consolas', size: 11 },
-      paragraph: { alignment: 'left', indent_left: 0.5, space_before: 150, space_after: 150 }
+      paragraph: { alignment: 'left', indent_left: 0.4, space_before: 6, space_after: 6 }
     },
-    page_margin: { top: 1.0, bottom: 1.0, left: 1.0, right: 1.0 }
+    page_margin: { top: 1.0, bottom: 1.0, left: 1.25, right: 1.25 }
   };
 }
 

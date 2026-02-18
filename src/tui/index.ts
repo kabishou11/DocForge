@@ -264,7 +264,7 @@ async function runNewDocumentFlow(controller: TuiController): Promise<void> {
 }
 
 /**
- * 基于模板生成文档流程
+ * 基于模板生成文档流程 - 分段生成 + 流式显示
  */
 async function runTemplateFlow(controller: TuiController): Promise<void> {
   if (!controller.isConfigured()) {
@@ -308,9 +308,8 @@ async function runTemplateFlow(controller: TuiController): Promise<void> {
   }
 
   const template = String(templateResult);
-  console.log(`\n已选择模板: ${template}`);
 
-  // 输入新文档主题
+  // 输入主题
   const topic = await text({
     message: "请输入新文档主题:",
     placeholder: "基于模板风格生成的新文档主题",
@@ -331,118 +330,196 @@ async function runTemplateFlow(controller: TuiController): Promise<void> {
   // 输入目标字数
   const wordCountRaw = await text({
     message: "目标字数 (可选，默认3000):",
-    placeholder: "例如: 2000、5000",
+    placeholder: "例如: 2000、5000、8000",
   });
   const wordCountStr = isCancel(wordCountRaw) ? "" : String(wordCountRaw);
   const wordCount = wordCountStr && /^\d+$/.test(wordCountStr.trim())
     ? parseInt(wordCountStr.trim(), 10)
     : 3000;
 
-  // 显示进度 - 新流程：OCR提取 → LLM生成 → 文档合成
-  const steps = [
-    { icon: '📄', name: 'ocr_extraction', text: 'OCR提取模板样式' },
-    { icon: '✨', name: 'content_generation', text: 'LLM生成内容' },
-    { icon: '🎨', name: 'document_synthesis', text: '文档合成' },
-    { icon: '💾', name: 'saving', text: '保存文件' }
-  ];
+  // 是否联网搜索
+  const searchChoice = await select({
+    message: "是否联网搜索最新信息?",
+    options: [
+      { value: "yes", label: "是，搜索最新资料 (推荐)" },
+      { value: "no", label: "否，仅使用模型知识" },
+    ],
+  });
+  const enableSearch = !isCancel(searchChoice) && searchChoice === "yes";
 
-  let currentStep = 0;
-  let stepMessages: string[] = new Array(steps.length).fill('');
-  let progressInterval: NodeJS.Timeout | null = null;
-  let progressValue = 0;
+  // ========== 开始生成 ==========
+  console.clear();
 
-  // 进度动画
-  const showProgress = () => {
-    const spin = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠧"];
-    const barWidth = 20;
-    let frame = 0;
-    progressInterval = setInterval(() => {
-      // 更新进度条值（只在当前步骤时）
-      if (currentStep >= 0 && currentStep < steps.length) {
-        const msg = stepMessages[currentStep];
-        if (!msg.startsWith('✓') && !msg.startsWith('✗')) {
-          progressValue = (progressValue + 5) % 100;
-        }
-      }
+  // 状态追踪
+  let currentPhase = '';
+  let sectionTotal = 0;
+  let sectionIndex = 0;
+  let currentWordCount = 0;
+  let streamBuffer = '';
+  let streamLines: string[] = [];
+  let phaseLog: Array<{ icon: string; text: string; done: boolean; error?: boolean }> = [];
 
-      // 生成进度条
-      const filled = Math.round((progressValue / 100) * barWidth);
-      const bar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
-
-      let output = '';
-      for (let i = 0; i < steps.length; i++) {
-        const step = steps[i];
-        const msg = stepMessages[i];
-        let prefix: string;
-        let statusColor = '';
-        if (msg.startsWith('✓')) {
-          prefix = '✓';
-          statusColor = '\x1b[32m';
-        } else if (msg.startsWith('✗')) {
-          prefix = '✗';
-          statusColor = '\x1b[31m';
-        } else if (i === currentStep) {
-          prefix = spin[frame % 10];
-          statusColor = '\x1b[33m';
-        } else {
-          prefix = ' ';
-          statusColor = '';
-        }
-        output += `${prefix} ${step.icon} ${step.text}`;
-        if (msg) {
-          output += `\n   ${statusColor}└─ ${msg}\x1b[0m`;
-        }
-        output += '\n';
-      }
-      // 添加全局进度条
-      output += `\n${bar} ${progressValue}%`;
-
-      // 使用 \r 回车到行首，然后清除多行
-      process.stdout.write(`\r\x1b[0G\x1b[J${output}\n\x1b[${steps.length + 2}A`);
-      frame++;
-    }, 100);
+  const addPhase = (icon: string, text: string) => {
+    phaseLog.push({ icon, text, done: false });
+  };
+  const completePhase = (msg?: string) => {
+    if (phaseLog.length > 0) {
+      const last = phaseLog[phaseLog.length - 1];
+      last.done = true;
+      if (msg) last.text = msg;
+    }
+  };
+  const failPhase = (msg: string) => {
+    if (phaseLog.length > 0) {
+      const last = phaseLog[phaseLog.length - 1];
+      last.done = true;
+      last.error = true;
+      last.text = msg;
+    }
   };
 
-  // 先清屏并显示标题
-  console.clear();
-  console.log("\x1b[1;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m");
-  console.log("\x1b[1;36m  基于模板生成文档\x1b[0m");
-  console.log("\x1b[1;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
+  // 渲染函数
+  const spin = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  let frame = 0;
+  let renderInterval: NodeJS.Timeout | null = null;
 
-  showProgress();
+  const render = () => {
+    frame++;
+    const lines: string[] = [];
+
+    // 标题栏
+    lines.push("\x1b[1;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m");
+    lines.push(`\x1b[1;36m  DocForge · ${topic}\x1b[0m`);
+    lines.push(`\x1b[90m  模板: ${template} | 目标: ${wordCount} 字 | 搜索: ${enableSearch ? '开启' : '关闭'}\x1b[0m`);
+    lines.push("\x1b[1;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m");
+    lines.push('');
+
+    // 阶段日志
+    for (const phase of phaseLog) {
+      if (phase.done) {
+        const icon = phase.error ? '\x1b[31m✗\x1b[0m' : '\x1b[32m✓\x1b[0m';
+        lines.push(`  ${icon} ${phase.text}`);
+      } else {
+        lines.push(`  \x1b[33m${spin[frame % 10]}\x1b[0m ${phase.text}`);
+      }
+    }
+
+    // 章节进度条
+    if (sectionTotal > 0 && currentPhase.includes('section')) {
+      lines.push('');
+      const pct = Math.round(((sectionIndex + 1) / sectionTotal) * 100);
+      const barW = 30;
+      const filled = Math.round((pct / 100) * barW);
+      const bar = '\x1b[36m' + '█'.repeat(filled) + '\x1b[90m' + '░'.repeat(barW - filled) + '\x1b[0m';
+      lines.push(`  ${bar} ${pct}%  \x1b[90m章节 ${sectionIndex + 1}/${sectionTotal}\x1b[0m`);
+    }
+
+    // 字数统计
+    if (currentWordCount > 0) {
+      const wpct = Math.min(100, Math.round((currentWordCount / wordCount) * 100));
+      lines.push(`  \x1b[90m已生成 \x1b[1;37m${currentWordCount.toLocaleString()}\x1b[0;90m 字 / 目标 ${wordCount.toLocaleString()} 字 (${wpct}%)\x1b[0m`);
+    }
+
+    // 流式输出预览（最后 4 行）
+    if (streamLines.length > 0) {
+      lines.push('');
+      lines.push('  \x1b[90m─── 实时预览 ───\x1b[0m');
+      const preview = streamLines.slice(-4);
+      for (const line of preview) {
+        const trimmed = line.slice(0, 70);
+        lines.push(`  \x1b[37m${trimmed}\x1b[0m`);
+      }
+    }
+
+    // 输出
+    process.stdout.write('\x1b[H\x1b[J'); // 清屏
+    process.stdout.write(lines.join('\n') + '\n');
+  };
+
+  renderInterval = setInterval(render, 120);
 
   let result;
   try {
     result = await controller.generateDocumentFromTemplate(
-      path.join(templatesDir, template as string),
+      path.join(templatesDir, template),
       topic,
       description,
       {
         wordCount,
+        enableSearch,
         onProgress: (progress) => {
-          const stepIndex = steps.findIndex(s => s.name === progress.step);
-          if (stepIndex >= 0) {
-            currentStep = stepIndex;
-            if (progress.status === 'started') {
-              stepMessages[stepIndex] = progress.message || '';
-            } else if (progress.status === 'completed') {
-              stepMessages[stepIndex] = `✓ ${progress.message || '完成'}`;
-            } else if (progress.status === 'error') {
-              stepMessages[stepIndex] = `✗ ${progress.message || '失败'}`;
-            }
+          currentPhase = progress.step;
+
+          switch (progress.step) {
+            case 'template_parse':
+              if (progress.status === 'started') {
+                addPhase('📄', `解析模板 ${template}...`);
+              } else if (progress.status === 'completed') {
+                completePhase(`📄 模板解析完成 · ${progress.message}`);
+              }
+              break;
+
+            case 'outline':
+              if (progress.status === 'started') {
+                addPhase('📋', '生成文档大纲...');
+              } else if (progress.status === 'completed') {
+                sectionTotal = progress.sectionTotal || 0;
+                completePhase(`📋 大纲生成完成 · ${sectionTotal} 个章节`);
+              }
+              break;
+
+            case 'section_search':
+              if (progress.status === 'started') {
+                addPhase('🔍', `搜索: "${progress.searchQuery}"`);
+              } else if (progress.status === 'completed') {
+                completePhase(`🔍 搜索完成 · ${progress.searchResults || 0} 条参考`);
+              }
+              break;
+
+            case 'section_generate':
+              if (progress.status === 'started') {
+                sectionIndex = progress.sectionIndex || 0;
+                addPhase('✨', `生成 [${sectionIndex + 1}/${sectionTotal}] ${progress.sectionTitle}`);
+                streamBuffer = '';
+                streamLines = [];
+              } else if (progress.status === 'completed') {
+                completePhase(`✨ [${(progress.sectionIndex || 0) + 1}/${sectionTotal}] ${progress.sectionTitle} · ${progress.message}`);
+              }
+              break;
+
+            case 'section_stream':
+              // 流式文本
+              if (progress.streamChunk) {
+                streamBuffer += progress.streamChunk;
+                streamLines = streamBuffer.split('\n').filter(l => l.trim());
+              }
+              if (progress.wordCount) {
+                currentWordCount = progress.wordCount;
+              }
+              break;
+
+            case 'docx_generate':
+              if (progress.status === 'started') {
+                addPhase('📦', '生成 DOCX 文档...');
+              } else if (progress.status === 'completed') {
+                completePhase(`📦 DOCX 生成完成 · ${progress.message}`);
+                if (progress.wordCount) currentWordCount = progress.wordCount;
+              }
+              break;
+
+            case 'error':
+              failPhase(`❌ ${progress.message}`);
+              break;
           }
         }
       }
     );
   } catch (error) {
-    // 停止进度动画
-    if (progressInterval) {
-      clearInterval(progressInterval);
-      process.stdout.write("\r\x1b[K");
-    }
+    if (renderInterval) clearInterval(renderInterval);
+    render(); // 最终渲染
 
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error(`\x1b[31m生成失败: ${errorMsg}\x1b[0m`);
+    console.error(`\n\x1b[31m${errorMsg}\x1b[0m`);
 
     if (errorMsg.includes('aborted') || errorMsg.includes('fetch') || errorMsg.includes('network')) {
       console.log("\x1b[90m提示: 网络连接可能不稳定，请检查后重试。\x1b[0m");
@@ -452,41 +529,27 @@ async function runTemplateFlow(controller: TuiController): Promise<void> {
     return;
   }
 
-  // 停止进度动画
-  if (progressInterval) {
-    clearInterval(progressInterval);
-    process.stdout.write("\r\x1b[K");
-  }
+  // 停止渲染
+  if (renderInterval) clearInterval(renderInterval);
 
-  // 显示结果
-  console.log("\n\x1b[32m✅ 文档生成完成!\x1b[0m\n");
+  // 最终结果
+  console.clear();
+  console.log("\x1b[1;32m");
+  console.log("  ╔══════════════════════════════════════╗");
+  console.log("  ║         ✅ 文档生成完成!              ║");
+  console.log("  ╚══════════════════════════════════════╝");
+  console.log("\x1b[0m");
 
-  // 显示使用的模型（简化版：只需要 OCR + LLM）
-  console.log("\x1b[1;36m📊 模型调用链路\x1b[0m");
-  console.log(`├─ OCR 模型: ${result.modelsUsed.ocr || '默认样式'}`);
-  console.log(`└─ LLM 模型: ${result.modelsUsed.llm}`);
+  console.log(`  \x1b[1;36m📊 生成统计\x1b[0m`);
+  console.log(`  ├─ 章节数: ${result.sectionCount}`);
+  console.log(`  ├─ 总字数: ${result.wordCount.toLocaleString()}`);
+  console.log(`  └─ LLM: ${result.modelsUsed.llm}`);
 
-  // 显示使用的样式
-  if (result.styleRules) {
-    const s = result.styleRules;
-    console.log("\n\x1b[1;36m🎨 应用的样式规则\x1b[0m");
-    console.log(`├─ 标题: ${s.title.fontFamily} ${s.title.fontSize}pt ${s.title.fontBold ? '加粗' : ''}`);
-    console.log(`├─ 正文: ${s.body.fontFamily} ${s.body.fontSize}pt, ${s.body.alignment === 'justify' ? '两端对齐' : s.body.alignment}`);
-    console.log(`├─ 行距: ${s.body.lineSpacing || 1.5}倍`);
-    console.log(`└─ 页边距: 上下左右各${(s.pageMargin?.top || 1440) / 1440}cm`);
-  }
-
-  // 显示生成的文件
-  console.log("\n\x1b[1;36m📁 生成文件\x1b[0m");
-  console.log(`├─ Markdown: ${result.filePath}`);
+  console.log(`\n  \x1b[1;36m📁 输出文件\x1b[0m`);
+  console.log(`  ├─ Markdown: ${result.filePath}`);
   if (result.docxPath) {
-    console.log(`└─ DOCX: ${result.docxPath}`);
-  } else {
-    console.log(`└─ DOCX: 未生成`);
+    console.log(`  └─ DOCX: ${result.docxPath}`);
   }
-
-  console.log(`\n📊 章节数: ${result.sectionCount}`);
-  console.log(`📝 字符数: ${result.wordCount}`);
 
   await waitForConfirm("\n按 Enter 返回主界面");
 }

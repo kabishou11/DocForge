@@ -18,17 +18,28 @@ import {
   PythonStyleRules
 } from "../services/python-docx";
 import { StyleExtractor, StyleRules } from "../services/document-synthesizer";
+import { searchWeb, formatSearchContext } from "../services/web-search";
 
 export interface GenerationProgress {
   step: string;
   model?: string;
   status: 'started' | 'completed' | 'error';
   message?: string;
+  // 新增：分段生成进度
+  sectionIndex?: number;
+  sectionTotal?: number;
+  sectionTitle?: string;
+  wordCount?: number;
+  targetWords?: number;
+  streamChunk?: string;  // 流式输出的文本片段
+  searchQuery?: string;  // 正在搜索的关键词
+  searchResults?: number; // 搜索结果数量
 }
 
 export interface GenerateOptions {
   onProgress?: (progress: GenerationProgress) => void;
   wordCount?: number;
+  enableSearch?: boolean;  // 是否启用联网搜索
 }
 
 export interface ControllerOptions {
@@ -450,7 +461,8 @@ export class TuiController extends EventEmitter {
   }
 
   /**
-   * 基于模板生成文档 - 简化流程（OCR 提取样式 → LLM 生成内容 → 文档合成）
+   * 基于模板生成文档 - 分段生成流程
+   * 模板解析 → 大纲生成 → [联网搜索 → 流式生成] × N → 合并 → DOCX
    */
   async generateDocumentFromTemplate(
     templatePath: string,
@@ -469,70 +481,141 @@ export class TuiController extends EventEmitter {
     };
     styleRules?: StyleRules;
   }> {
-    // 进度回调辅助函数
-    const reportProgress = (step: string, model: string | undefined, status: GenerationProgress['status'], message?: string) => {
-      options?.onProgress?.({ step, model, status, message });
+    const report = (step: string, status: GenerationProgress['status'], extra?: Partial<GenerationProgress>) => {
+      options?.onProgress?.({ step, status, ...extra });
     };
 
     try {
-      // 读取模板内容
       if (!fs.existsSync(templatePath)) {
         throw new Error(`模板文件不存在: ${templatePath}`);
       }
 
       const ext = path.extname(templatePath).toLowerCase();
       const fileName = path.basename(templatePath);
-
-      // 获取当前配置的模型
       const llmConfig = this.configManager.getLLM();
       const ocrConfig = this.configManager.getOCR();
+      const targetWords = options?.wordCount || 3000;
+      const enableSearch = options?.enableSearch !== false; // 默认开启
 
       let templateContent: string;
       let styleRules: StyleRules;
 
-      // ========== 步骤 1: OCR 提取样式和内容 ==========
-      reportProgress('ocr_extraction', ocrConfig.id, 'started', `正在解析模板: ${fileName}`);
+      // ========== 阶段 1: 模板解析 ==========
+      report('template_parse', 'started', { message: `解析模板: ${fileName}` });
 
       if (ext === '.docx') {
-        // 使用 StyleExtractor 从 DOCX 提取样式规则
         styleRules = await StyleExtractor.extractFromDocx(templatePath);
-
-        // 提取纯文本用于 LLM
         const buffer = fs.readFileSync(templatePath);
         const textResult = await mammoth.extractRawText({ buffer });
         templateContent = textResult.value;
-
-        reportProgress('ocr_extraction', ocrConfig.id, 'completed',
-          `样式提取完成 - 标题${styleRules.heading1.fontFamily}${styleRules.heading1.fontSize}pt, 正文${styleRules.body.fontFamily}${styleRules.body.fontSize}pt`);
-      } else if (ext === '.md' || ext === '.txt') {
-        // Markdown 模板: 使用默认样式
-        styleRules = await StyleExtractor.extractFromDocx(templatePath);
-        reportProgress('ocr_extraction', undefined, 'completed', '使用默认中文正式文档样式');
-        templateContent = fs.readFileSync(templatePath, "utf-8");
       } else {
-        throw new Error(`不支持的文件格式: ${ext}`);
+        styleRules = await StyleExtractor.extractFromDocx(templatePath);
+        templateContent = fs.readFileSync(templatePath, "utf-8");
       }
 
-      reportProgress('ocr_extraction', ocrConfig.id, 'completed', `模板解析完成，${templateContent.length} 字符`);
+      report('template_parse', 'completed', {
+        message: `标题${styleRules.heading1.fontFamily}${styleRules.heading1.fontSize}pt, 正文${styleRules.body.fontFamily}${styleRules.body.fontSize}pt`
+      });
 
-      // ========== 步骤 2: LLM 生成内容 ==========
-      reportProgress('content_generation', llmConfig.name, 'started', '基于模板风格生成新文档...');
+      // ========== 阶段 2: 生成大纲 ==========
+      report('outline', 'started', { message: '分析模板结构，生成大纲...' });
 
-      // 构建提示词，包含样式规范
-      const stylePrompt = this.buildStylePrompt(styleRules);
-
-      const content = await this.llmClient.generateDocumentFromTemplate(
-        templateContent,
-        topic,
-        description,
-        stylePrompt,
-        options?.wordCount
+      const outline = await this.llmClient.generateOutlineFromTemplate(
+        templateContent, topic, description, targetWords
       );
 
-      reportProgress('content_generation', llmConfig.name, 'completed', `内容生成完成，约 ${content.length} 字符`);
+      const sections = outline.sections;
+      report('outline', 'completed', {
+        message: `${sections.length} 个章节`,
+        sectionTotal: sections.length
+      });
 
-      // ========== 步骤 3: 文档合成（使用 Python python-docx） ==========
-      reportProgress('document_synthesis', ocrConfig.id, 'started', '正在应用模板样式...');
+      // ========== 阶段 3: 逐章节生成 ==========
+      const stylePrompt = this.buildStylePrompt(styleRules);
+      const allSections: string[] = [];
+      let totalWords = 0;
+
+      // 生成文档标题
+      allSections.push(`# ${topic}\n`);
+
+      for (let i = 0; i < sections.length; i++) {
+        const section = sections[i];
+
+        // 3a. 联网搜索
+        let searchContext = '';
+        if (enableSearch && section.keywords) {
+          report('section_search', 'started', {
+            sectionIndex: i,
+            sectionTotal: sections.length,
+            sectionTitle: section.title,
+            searchQuery: section.keywords
+          });
+
+          const results = await searchWeb(`${section.keywords} ${topic}`, 3);
+          searchContext = formatSearchContext(results);
+
+          report('section_search', 'completed', {
+            sectionIndex: i,
+            sectionTitle: section.title,
+            searchResults: results.length,
+            message: results.length > 0 ? `${results.length} 条参考` : '无结果'
+          });
+        }
+
+        // 3b. 流式生成章节
+        report('section_generate', 'started', {
+          sectionIndex: i,
+          sectionTotal: sections.length,
+          sectionTitle: section.title,
+          wordCount: totalWords,
+          targetWords
+        });
+
+        // 前文摘要（取最后 500 字作为上下文）
+        const prevText = allSections.join('\n');
+        const previousContext = prevText.length > 500
+          ? prevText.slice(-500)
+          : prevText;
+
+        const sectionContent = await this.llmClient.streamSectionContent(
+          {
+            topic,
+            sectionTitle: section.title,
+            sectionLevel: section.level,
+            targetWords: section.targetWords || Math.round(targetWords / sections.length),
+            stylePrompt,
+            previousContext,
+            searchContext
+          },
+          (chunk) => {
+            totalWords += chunk.length;
+            report('section_stream', 'started', {
+              sectionIndex: i,
+              sectionTotal: sections.length,
+              sectionTitle: section.title,
+              wordCount: totalWords,
+              targetWords,
+              streamChunk: chunk
+            });
+          }
+        );
+
+        allSections.push(sectionContent);
+
+        report('section_generate', 'completed', {
+          sectionIndex: i,
+          sectionTotal: sections.length,
+          sectionTitle: section.title,
+          wordCount: totalWords,
+          targetWords,
+          message: `${sectionContent.length} 字`
+        });
+      }
+
+      // ========== 阶段 4: 合并 + 生成 DOCX ==========
+      report('docx_generate', 'started', { message: '合并内容，生成 DOCX...' });
+
+      const fullContent = allSections.join('\n\n');
 
       const outputDir = "./output";
       if (!fs.existsSync(outputDir)) {
@@ -543,42 +626,38 @@ export class TuiController extends EventEmitter {
       const safeTopic = topic.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, "_").slice(0, 30);
       const basePath = path.join(outputDir, `${timestamp}_${safeTopic}_from_template`);
 
-      // 保存 Markdown
       const mdPath = `${basePath}.md`;
-      fs.writeFileSync(mdPath, content, "utf-8");
+      fs.writeFileSync(mdPath, fullContent, "utf-8");
 
-      // 转换样式格式
       const pythonStyleRules = this.convertToPythonStyle(styleRules);
 
-      // 使用 Python 生成格式还原的 DOCX
       const docxPath = await generateDocxWithPython({
-        markdown: content,
+        markdown: fullContent,
         outputPath: `${basePath}_formatted.docx`,
         styleRules: pythonStyleRules,
         addTimestamp: true
       });
 
-      reportProgress('document_synthesis', ocrConfig.id, 'completed', `DOCX 已生成: ${path.basename(docxPath)}`);
-      reportProgress('saving', undefined, 'completed', '文件已保存');
-
-      // 统计章节数
-      const sectionCount = (content.match(/^##\s/gm) || []).length + 1;
+      report('docx_generate', 'completed', {
+        message: path.basename(docxPath),
+        wordCount: fullContent.length
+      });
 
       return {
         filePath: mdPath,
         docxPath,
-        sectionCount,
-        wordCount: content.length,
+        sectionCount: sections.length,
+        wordCount: fullContent.length,
         modelsUsed: {
           ocr: ext === '.docx' ? ocrConfig.id : null,
-          vl: null,  // 不需要 VL 模型
+          vl: null,
           llm: llmConfig.name
         },
         styleRules
       };
     } catch (error) {
-      reportProgress('error', undefined, 'error', error instanceof Error ? error.message : String(error));
-      throw new Error(`基于模板生成文档失败: ${error instanceof Error ? error.message : error}`);
+      report('error', 'error', { message: error instanceof Error ? error.message : String(error) });
+      throw new Error(`生成失败: ${error instanceof Error ? error.message : error}`);
     }
   }
 
