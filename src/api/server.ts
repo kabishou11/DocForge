@@ -8,8 +8,15 @@ import cors from 'cors';
 import multer from 'multer';
 import * as path from 'path';
 import * as fs from 'fs';
-import mammoth = require('mammoth');
 import { TuiController } from '../tui/controller';
+
+// Dynamic import for mammoth (ES module)
+let mammoth: any;
+try {
+  mammoth = require('mammoth');
+} catch (e) {
+  console.warn('mammoth not available, DOCX preview will be limited');
+}
 
 const app = express();
 const PORT = process.env.PORT || 3456;
@@ -390,14 +397,21 @@ app.get('/api/templates/:name/preview', async (req, res) => {
       res.json({ content, type: 'md' });
     } else if (ext === '.docx') {
       // Use mammoth to extract text from DOCX
+      if (!mammoth) {
+        const stat = fs.statSync(filePath);
+        res.json({ content: `DOCX 文件 (${(stat.size / 1024).toFixed(1)} KB) - mammoth 未安装`, type: 'text' });
+        return;
+      }
       try {
         const buffer = fs.readFileSync(filePath);
+        console.log('Extracting DOCX text, buffer size:', buffer.length);
         const result = await mammoth.extractRawText({ buffer });
+        console.log('DOCX extraction result length:', result.value?.length);
         const content = result.value || '（DOCX 文件内容为空）';
         res.json({ content, type: 'md' });
       } catch (docxError) {
         console.error('DOCX template preview error:', docxError);
-        res.json({ content: 'DOCX 预览失败', type: 'unknown' });
+        res.json({ content: `DOCX 预览失败: ${docxError}`, type: 'unknown' });
       }
     } else {
       res.json({ content: '不支持预览此文件类型', type: 'unknown' });
@@ -462,14 +476,21 @@ app.get('/api/history/:name/preview', async (req, res) => {
       res.json({ content, type: 'md' });
     } else if (ext === '.docx') {
       // Use mammoth to extract text from DOCX
+      if (!mammoth) {
+        const stat = fs.statSync(filePath);
+        res.json({ content: `DOCX 文件 (${(stat.size / 1024).toFixed(1)} KB) - mammoth 未安装`, type: 'text' });
+        return;
+      }
       try {
         const buffer = fs.readFileSync(filePath);
+        console.log('Extracting DOCX history text, buffer size:', buffer.length);
         const result = await mammoth.extractRawText({ buffer });
+        console.log('DOCX history extraction result length:', result.value?.length);
         const content = result.value || '（DOCX 文件内容为空）';
         res.json({ content, type: 'md' });
       } catch (docxError) {
         console.error('DOCX history preview error:', docxError);
-        res.json({ content: 'DOCX 预览失败', type: 'unknown' });
+        res.json({ content: `DOCX 预览失败: ${docxError}`, type: 'unknown' });
       }
     } else {
       res.json({ content: '不支持预览此文件类型', type: 'unknown' });
