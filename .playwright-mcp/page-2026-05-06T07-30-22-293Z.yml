@@ -1,0 +1,19 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - img [ref=e7]
+    - navigation [ref=e10]:
+      - button "生成" [ref=e11] [cursor=pointer]:
+        - img [ref=e12]
+        - generic: 生成
+      - button "模板" [ref=e16] [cursor=pointer]:
+        - img [ref=e17]
+        - generic: 模板
+      - button "历史" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+        - generic: 历史
+      - button "设置" [ref=e26] [cursor=pointer]:
+        - img [ref=e27]
+        - generic: 设置
+    - generic [ref=e32]: D
+  - main [ref=e33]:
+    - img [ref=e35]

@@ -1,0 +1,50 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - img [ref=e7]
+    - navigation [ref=e10]:
+      - button "生成" [active] [ref=e11] [cursor=pointer]:
+        - img [ref=e12]
+      - button "模板" [ref=e16] [cursor=pointer]:
+        - img [ref=e17]
+      - button "历史" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+      - button "设置" [ref=e26] [cursor=pointer]:
+        - img [ref=e27]
+    - generic [ref=e32]: D
+  - main [ref=e33]:
+    - generic [ref=e34]:
+      - generic [ref=e35]:
+        - generic [ref=e36]:
+          - heading "文档生成" [level=1] [ref=e37]
+          - paragraph [ref=e38]: AI 驱动的专业文档生成
+        - generic [ref=e39]:
+          - button "从零生成" [ref=e40] [cursor=pointer]:
+            - img [ref=e41]
+            - text: 从零生成
+          - button "基于模板" [ref=e43] [cursor=pointer]:
+            - img [ref=e44]
+            - text: 基于模板
+      - generic [ref=e47]:
+        - generic [ref=e49]:
+          - generic [ref=e50]:
+            - generic [ref=e51]: 文档主题
+            - textbox "例如：智慧园区建设方案" [ref=e52]
+          - generic [ref=e53]:
+            - generic [ref=e54]: 描述要求
+            - textbox "描述文档需要包含的内容、风格、重点..." [ref=e55]
+          - generic [ref=e56]:
+            - generic [ref=e57]:
+              - generic [ref=e58]: 目标字数
+              - spinbutton [ref=e59]: "3000"
+            - generic [ref=e61] [cursor=pointer]:
+              - button "联网搜索" [ref=e62]
+              - generic [ref=e64]:
+                - img [ref=e65]
+                - text: 联网搜索
+          - button "开始生成" [disabled] [ref=e68]:
+            - img [ref=e69]
+            - text: 开始生成
+        - generic [ref=e74]:
+          - img [ref=e76]
+          - paragraph [ref=e79]: 输入主题和描述，开始生成文档
+          - paragraph [ref=e80]: 支持从零生成或基于模板风格迁移

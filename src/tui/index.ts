@@ -23,8 +23,9 @@ async function showModelConfig(controller: TuiController): Promise<void> {
 
   console.clear();
   console.log("\x1b[1;36m模型配置\x1b[0m");
-  console.log(`\nAPI: ${config.provider} | ${apiStatus}`);
-  console.log(`LLM: ${config.llm}`);
+  console.log(`\n格式: ${config.format} | ${apiStatus}`);
+  console.log(`模型: ${config.model}`);
+  console.log(`端点: ${config.baseUrl}`);
   console.log(`OCR: ${config.ocr || '默认样式'}`);
   console.log("\n[1] 设置 API Key");
   console.log("[2] 选择 LLM 模型");

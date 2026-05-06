@@ -151,7 +151,7 @@ export class ModelScopeService {
    * 获取当前选中的 VL 模型
    */
   getSelectedVL(): { id: string; name: string } {
-    return this.configManager.getVL();
+    return { id: 'Qwen/Qwen3-VL-235B-A22B-Instruct', name: 'Qwen3-VL-235B' };
   }
 
   /**
@@ -159,23 +159,14 @@ export class ModelScopeService {
    */
   setLLM(modelId: string, modelName?: string): void {
     const models = POPULAR_MODELS.find(m => m.id === modelId && m.type === 'llm');
-    if (models) {
-      this.configManager.setLLM(modelId, models.name, models.contextLength);
-    } else {
-      this.configManager.setLLM(modelId, modelName || modelId.split('/').pop() || modelId);
-    }
+    this.configManager.setLLM(modelId, models?.name || modelName || modelId.split('/').pop() || modelId);
   }
 
   /**
-   * 设置 VL 模型
+   * 设置 VL 模型（暂存，不写入配置）
    */
-  setVL(modelId: string, modelName?: string): void {
-    const models = POPULAR_MODELS.find(m => m.id === modelId && m.type === 'vl');
-    if (models) {
-      this.configManager.setVL(modelId, models.name);
-    } else {
-      this.configManager.setVL(modelId, modelName || modelId.split('/').pop() || modelId);
-    }
+  setVL(_modelId: string, _modelName?: string): void {
+    // VL 模型暂不写入简化配置
   }
 
   /**
@@ -251,7 +242,7 @@ export class ModelScopeService {
     vl: { id: string; name: string };
   } {
     return {
-      provider: this.configManager.getProvider(),
+      provider: this.configManager.getFormat(),
       baseUrl: this.configManager.getBaseUrl(),
       hasApiKey: !!this.apiKey,
       llm: this.getSelectedLLM(),

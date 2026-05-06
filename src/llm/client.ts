@@ -1,28 +1,21 @@
 /**
- * LLM Client - ModelScope/OpenAI 兼容接口
+ * LLM Client - 统一 LLM 客户端
  *
- * 对接 ModelScope 的 DeepSeek-V3.2 模型，支持流式输出和思考控制
- *
- * 使用示例：
- * const llm = new LLMClient({
- *   baseUrl: 'https://api-inference.modelscope.cn/v1',
- *   apiKey: process.env.MODELSCOPE_API_KEY
- * });
- *
- * const response = await llm.chat({
- *   model: 'deepseek-ai/DeepSeek-V3.2',
- *   messages: [{ role: 'user', content: '9.9和9.11谁大' }],
- *   enableThinking: true
- * });
+ * 根据 format 字段自动选择适配器：
+ * - format: 'openai'     → OpenAI 兼容（ModelScope, DeepSeek, Moonshot 等）
+ * - format: 'anthropic'  → Anthropic（Claude 系列）
  */
 
 import { EventEmitter } from 'events';
+import { createAdapter, type ModelAdapter, type AdapterConfig } from './adapters';
+import type { ApiFormat, ModelConfig } from '../config';
 
 export interface LLMConfig {
   baseUrl: string;
   apiKey: string;
   timeout?: number;
   maxRetries?: number;
+  format?: ApiFormat;
 }
 
 export interface ContentBlock {
@@ -99,24 +92,64 @@ export class LLMClient extends EventEmitter {
   private baseUrl: string;
   private apiKey: string;
   private modelId: string;
+  private format: ApiFormat;
+  private adapter: ModelAdapter;
 
-  constructor(config: LLMConfig, modelId: string = 'deepseek-ai/DeepSeek-V3.2') {
+  constructor(config: LLMConfig, modelId?: string) {
     super();
     this.config = {
-      timeout: 180000, // 3 minutes timeout for large requests
+      timeout: 180000,
       maxRetries: 2,
       ...config
     };
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
     this.apiKey = config.apiKey;
-    this.modelId = modelId;
+    this.format = config.format || 'openai';
+    this.modelId = modelId || 'gpt-4o';
+
+    this.adapter = this.buildAdapter();
   }
 
   /**
-   * 设置模型 ID
+   * 从 ModelConfig 直接创建客户端
+   */
+  static fromModelConfig(modelConfig: ModelConfig, modelId?: string): LLMClient {
+    return new LLMClient({
+      format: modelConfig.format,
+      baseUrl: modelConfig.baseUrl,
+      apiKey: modelConfig.apiKey,
+    }, modelId || modelConfig.model);
+  }
+
+  private buildAdapter(): ModelAdapter {
+    const adapterConfig: AdapterConfig = {
+      format: this.format,
+      apiKey: this.apiKey,
+      baseUrl: this.baseUrl,
+      model: this.modelId,
+      timeout: this.config.timeout,
+    };
+    return createAdapter(adapterConfig);
+  }
+
+  /**
+   * 设置模型 ID（同时更新 adapter）
    */
   setModelId(modelId: string): void {
     this.modelId = modelId;
+    this.adapter = this.buildAdapter();
+  }
+
+  /**
+   * 更新完整配置并重建 adapter
+   */
+  updateConfig(config: Partial<LLMConfig>, modelId?: string): void {
+    if (config.format !== undefined) this.format = config.format;
+    if (config.baseUrl !== undefined) this.baseUrl = config.baseUrl.replace(/\/$/, '');
+    if (config.apiKey !== undefined) this.apiKey = config.apiKey;
+    if (modelId) this.modelId = modelId;
+    this.config = { ...this.config, ...config };
+    this.adapter = this.buildAdapter();
   }
 
   /**
@@ -128,31 +161,31 @@ export class LLMClient extends EventEmitter {
 
   /**
    * 发送聊天请求（非流式）
+   *
+   * 使用示例：
+   * const response = await llm.chat({
+   *   model: 'deepseek-ai/DeepSeek-V3.2',
+   *   messages: [{ role: 'user', content: '9.9和9.11谁大' }],
+   *   enableThinking: true
+   * });
    */
   async chat(options: ChatOptions): Promise<ChatResponse> {
-    const endpoint = `${this.baseUrl}/chat/completions`;
-
-    const body = {
-      model: options.model,
-      messages: options.messages,
-      stream: false,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens,
-      extra_body: {
-        enable_thinking: options.enableThinking ?? false
-      }
+    const chatOptions = {
+      ...options,
+      model: options.model || this.modelId,
     };
 
-    const response = await this.fetchWithRetry(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify(body)
-    });
+    const maxRetries = this.config.maxRetries ?? 2;
 
-    return response.json() as Promise<ChatResponse>;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.adapter.chat(options.messages, chatOptions);
+      } catch (error) {
+        if (attempt === maxRetries) throw error;
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+      }
+    }
+    throw new Error('Max retries exceeded');
   }
 
   /**
@@ -172,109 +205,12 @@ export class LLMClient extends EventEmitter {
    * }
    */
   async *chatStream(options: ChatOptions): AsyncGenerator<StreamChunk> {
-    const endpoint = `${this.baseUrl}/chat/completions`;
-
-    const body = {
-      model: options.model,
-      messages: options.messages,
-      stream: true,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens,
-      extra_body: {
-        enable_thinking: options.enableThinking ?? true
-      }
+    const chatOptions = {
+      ...options,
+      model: options.model || this.modelId,
     };
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify(body)
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`API Error: ${response.status} - ${error}`);
-    }
-
-    if (!response.body) {
-      throw new Error('Response body is null');
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            return;
-          }
-          try {
-            const chunk = JSON.parse(data);
-            yield chunk as StreamChunk;
-          } catch (e) {
-            // 忽略解析错误
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * 带重试的 fetch
-   */
-  private async fetchWithRetry(
-    url: string,
-    options: RequestInit,
-    retries?: number
-  ): Promise<Response> {
-    const maxRetries = retries ?? this.config.maxRetries ?? 2;
-
-    for (let i = 0; i <= maxRetries; i++) {
-      try {
-        const controller = new AbortController();
-        // 使用更长的超时时间
-        const timeout = setTimeout(() => controller.abort(), this.config.timeout);
-
-        const response = await fetch(url, {
-          ...options,
-          signal: controller.signal
-        });
-
-        clearTimeout(timeout);
-
-        if (response.ok) {
-          return response;
-        }
-
-        const error = await response.text();
-        throw new Error(`API Error: ${response.status} - ${error}`);
-      } catch (error) {
-        // 如果是 abort (超时) 错误，直接抛出，不重试
-        if (error instanceof Error && error.name === 'AbortError') {
-          throw new Error(`请求超时 (${this.config.timeout}ms)，请稍后重试`);
-        }
-        if (i === maxRetries) {
-          throw error;
-        }
-        // 指数退避
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
-      }
-    }
-
-    throw new Error('Max retries exceeded');
+    yield* this.adapter.chatStream(options.messages, chatOptions);
   }
 
   /**
@@ -575,13 +511,14 @@ ${truncated}
 }
 
 /**
- * 创建默认 LLM 客户端
+ * 创建默认 LLM 客户端（使用默认 ModelScope 预设）
  */
 export function createLLMClient(apiKey?: string, modelId?: string): LLMClient {
   return new LLMClient({
+    format: 'openai',
     baseUrl: process.env.LLM_BASE_URL || 'https://api-inference.modelscope.cn/v1',
-    apiKey: apiKey || process.env.MODELSCOPE_API_KEY || ''
-  }, modelId);
+    apiKey: apiKey || process.env.MODELSCOPE_API_KEY || '',
+  }, modelId || 'deepseek-ai/DeepSeek-V3.2');
 }
 
 export default LLMClient;

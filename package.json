@@ -15,6 +15,10 @@
     "tui": "node bin/docforge.js",
     "dev": "ts-node src/cli.ts",
     "cli": "ts-node src/cli.ts",
+    "server": "ts-node src/api/server.ts",
+    "server:dev": "nodemon --exec ts-node src/api/server.ts",
+    "web": "cd web && npm run dev",
+    "web:build": "cd web && npm run build",
     "test": "vitest",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write src/**/*.ts"
@@ -35,17 +39,24 @@
     "boxen": "^7.1.1",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
+    "cors": "^2.8.6",
     "docx": "^8.5.0",
+    "express": "^5.2.1",
     "figlet": "^1.7.0",
-    "mammoth": "^1.11.0"
+    "mammoth": "^1.11.0",
+    "multer": "^2.1.1"
   },
   "devDependencies": {
     "@types/blessed": "^0.1.27",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/figlet": "^1.7.0",
+    "@types/multer": "^2.1.0",
     "@types/node": "^20.19.30",
+    "nodemon": "^3.1.14",
     "prettier": "^3.1.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.3.0",
+    "typescript": "^5.9.3",
     "vitest": "^1.0.0"
   },
   "engines": {

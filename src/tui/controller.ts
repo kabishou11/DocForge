@@ -5,8 +5,8 @@
 import { EventEmitter } from "events";
 import { Message } from "./types";
 import { ModelScopeService } from "../services/modelscope";
-import { LLMClient, createLLMClient, extractText } from "../llm/client";
-import { ConfigManager } from "../config";
+import { LLMClient, extractText } from "../llm/client";
+import { ConfigManager, type ModelConfig, type PresetName, PRESETS } from "../config";
 import { ModelInfo } from "../types";
 import * as fs from "fs";
 import * as path from "path";
@@ -67,15 +67,22 @@ export class TuiController extends EventEmitter {
       this.configManager.setApiKey(options.apiKey);
     }
 
+    // 根据配置创建 LLM 客户端
+    this.llmClient = this.createLLMClient();
+
     // 初始化服务
-    this.llmClient = createLLMClient(
-      this.configManager.getApiKey(),
-      this.configManager.getLLM().id
-    );
     this.modelService = new ModelScopeService(this.configManager);
 
     // 加载模型
     this.loadModels();
+  }
+
+  /**
+   * 根据当前配置创建 LLM 客户端
+   */
+  private createLLMClient(): LLMClient {
+    const config = this.configManager.getModelConfig();
+    return LLMClient.fromModelConfig(config);
   }
 
   private async loadModels(): Promise<void> {
@@ -126,17 +133,40 @@ export class TuiController extends EventEmitter {
   }
 
   /**
-   * 获取模型配置信息
+   * 获取当前模型配置（简化版）
    */
-  getModelConfig(): { provider: string; hasApiKey: boolean; llm: string; ocr: string } {
-    const config = this.modelService.getConfigInfo();
+  getModelConfig(): ModelConfig & { hasApiKey: boolean; ocr: string } {
+    const config = this.configManager.getModelConfig();
     const ocr = this.getSelectedOCR();
     return {
-      provider: config.provider,
-      hasApiKey: config.hasApiKey,
-      llm: config.llm.name,
+      ...config,
+      apiKey: config.apiKey ? '***' : '',  // 隐藏 apiKey
+      hasApiKey: !!config.apiKey,
       ocr: ocr.name || '默认样式',
     };
+  }
+
+  /**
+   * 更新模型配置（部分更新）
+   */
+  updateModelConfig(updates: Partial<ModelConfig>): void {
+    this.configManager.updateModelConfig(updates);
+    this.llmClient = this.createLLMClient();
+  }
+
+  /**
+   * 应用预设配置
+   */
+  applyPreset(presetName: string): void {
+    this.configManager.applyPreset(presetName as PresetName);
+    this.llmClient = this.createLLMClient();
+  }
+
+  /**
+   * 获取所有预设列表
+   */
+  getPresets(): Record<string, { format: string; baseUrl: string; model: string }> {
+    return PRESETS;
   }
 
   /**
@@ -258,10 +288,7 @@ export class TuiController extends EventEmitter {
       return false;
     }
     this.configManager.setApiKey(key);
-    this.llmClient = createLLMClient(
-      this.configManager.getApiKey(),
-      this.configManager.getLLM().id
-    );
+    this.llmClient = this.createLLMClient();
     return true;
   }
 
@@ -272,7 +299,8 @@ export class TuiController extends EventEmitter {
     const model = this.llmModels.find((m) => m.id === modelId);
     if (model) {
       this.modelService.setLLM(model.id, model.name);
-      this.llmClient.setModelId(model.id);
+      this.configManager.updateModelConfig({ model: model.id });
+      this.llmClient = this.createLLMClient();
       return true;
     }
     return false;

@@ -1,0 +1,81 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - img [ref=e7]
+    - navigation [ref=e10]:
+      - button "生成" [ref=e11] [cursor=pointer]:
+        - img [ref=e12]
+        - generic: 生成
+      - button "模板" [ref=e16] [cursor=pointer]:
+        - img [ref=e17]
+        - generic: 模板
+      - button "历史" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+        - generic: 历史
+      - button "设置" [active] [ref=e26] [cursor=pointer]:
+        - img [ref=e27]
+        - generic: 设置
+    - generic [ref=e32]: D
+  - main [ref=e33]:
+    - generic [ref=e69]:
+      - generic [ref=e71]:
+        - img [ref=e73]
+        - generic [ref=e76]:
+          - heading "模型配置" [level=1] [ref=e77]
+          - paragraph [ref=e78]: 选择预设或自定义配置
+      - generic [ref=e79]:
+        - generic [ref=e80]:
+          - generic [ref=e81]:
+            - img [ref=e82]
+            - heading "快捷预设" [level=2] [ref=e85]
+          - generic [ref=e86]:
+            - button "ModelScope DeepSeek-V3.2" [ref=e87] [cursor=pointer]:
+              - generic [ref=e88]: ModelScope
+              - generic [ref=e89]: DeepSeek-V3.2
+            - button "DeepSeek deepseek-chat" [ref=e90] [cursor=pointer]:
+              - generic [ref=e91]: DeepSeek
+              - generic [ref=e92]: deepseek-chat
+            - button "OpenAI GPT-4o" [ref=e93] [cursor=pointer]:
+              - generic [ref=e94]: OpenAI
+              - generic [ref=e95]: GPT-4o
+            - button "Anthropic Claude Sonnet" [ref=e96] [cursor=pointer]:
+              - generic [ref=e97]: Anthropic
+              - generic [ref=e98]: Claude Sonnet
+            - button "Moonshot moonshot-v1-128k" [ref=e99] [cursor=pointer]:
+              - generic [ref=e100]: Moonshot
+              - generic [ref=e101]: moonshot-v1-128k
+            - button "Zhipu AI GLM-4-Flash" [ref=e102] [cursor=pointer]:
+              - generic [ref=e103]: Zhipu AI
+              - generic [ref=e104]: GLM-4-Flash
+        - generic [ref=e106]:
+          - generic [ref=e107]:
+            - img [ref=e108]
+            - heading "自定义配置" [level=2] [ref=e112]
+          - generic [ref=e113]:
+            - generic [ref=e114]:
+              - generic [ref=e115]: API 格式
+              - generic [ref=e116]:
+                - button "OpenAI 兼容" [ref=e117] [cursor=pointer]
+                - button "Anthropic" [ref=e118] [cursor=pointer]
+            - generic [ref=e119]:
+              - generic [ref=e120]: Base URL
+              - textbox "https://api.openai.com/v1" [ref=e121]
+            - generic [ref=e122]:
+              - generic [ref=e123]: API Key
+              - textbox "sk-..." [ref=e124]
+            - generic [ref=e125]:
+              - generic [ref=e126]: 模型名称
+              - textbox "gpt-4o" [ref=e127]
+            - generic [ref=e128]:
+              - button "测试连接" [ref=e129] [cursor=pointer]:
+                - img [ref=e130]
+                - text: 测试连接
+              - button "保存配置" [ref=e137] [cursor=pointer]:
+                - img [ref=e138]
+                - text: 保存配置
+        - generic [ref=e141]:
+          - generic [ref=e142]:
+            - img [ref=e143]
+            - generic [ref=e145]: 选择预设会自动填充 Base URL 和模型名，你只需输入 API Key 即可。
+          - generic [ref=e146]:
+            - img [ref=e147]
+            - generic [ref=e149]: 支持所有 OpenAI 兼容格式的 API，包括 Moonshot、智谱、零一万物等。

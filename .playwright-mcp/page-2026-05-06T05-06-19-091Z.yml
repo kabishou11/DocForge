@@ -1,0 +1,74 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - img [ref=e7]
+    - navigation [ref=e10]:
+      - button "生成" [ref=e11] [cursor=pointer]:
+        - img [ref=e12]
+        - generic: 生成
+      - button "模板" [ref=e16] [cursor=pointer]:
+        - img [ref=e17]
+        - generic: 模板
+      - button "历史" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+        - generic: 历史
+      - button "设置" [active] [ref=e26] [cursor=pointer]:
+        - img [ref=e27]
+        - generic: 设置
+    - generic [ref=e32]: D
+  - main [ref=e33]:
+    - generic [ref=e172]:
+      - generic [ref=e174]:
+        - img [ref=e176]
+        - generic [ref=e179]:
+          - heading "设置" [level=1] [ref=e180]
+          - paragraph [ref=e181]: 配置模型 Provider 和 API Key
+      - generic [ref=e182]:
+        - generic [ref=e183]:
+          - generic [ref=e184]:
+            - img [ref=e185]
+            - heading "选择 Provider" [level=2] [ref=e188]
+          - generic [ref=e189]:
+            - button "🧠 ModelScope" [ref=e190] [cursor=pointer]:
+              - generic [ref=e191]: 🧠
+              - generic [ref=e192]: ModelScope
+            - button "🤖 OpenAI" [ref=e193] [cursor=pointer]:
+              - generic [ref=e194]: 🤖
+              - generic [ref=e195]: OpenAI
+            - button "🧠 Anthropic" [ref=e196] [cursor=pointer]:
+              - generic [ref=e197]: 🧠
+              - generic [ref=e198]: Anthropic
+            - button "🔮 DeepSeek" [ref=e199] [cursor=pointer]:
+              - generic [ref=e200]: 🔮
+              - generic [ref=e201]: DeepSeek
+            - button "⚙️ 自定义 (OpenAI 兼容)" [ref=e202] [cursor=pointer]:
+              - generic [ref=e203]: ⚙️
+              - generic [ref=e204]: 自定义 (OpenAI 兼容)
+        - generic [ref=e205]:
+          - generic [ref=e206]:
+            - img [ref=e207]
+            - heading "ModelScope API Key" [level=2] [ref=e211]
+          - generic [ref=e212]:
+            - paragraph [ref=e213]: DeepSeek、Qwen 等模型。
+            - generic [ref=e214]:
+              - textbox "MODELSCOPE_API_KEY..." [ref=e215]
+              - button "保存" [ref=e216] [cursor=pointer]
+            - button "展开 API 端点设置" [ref=e218] [cursor=pointer]:
+              - img [ref=e219]
+              - generic [ref=e222]: 展开 API 端点设置
+              - img [ref=e223]
+        - generic [ref=e225]:
+          - generic [ref=e226]:
+            - img [ref=e227]
+            - heading "模型选择" [level=2] [ref=e230]
+          - generic [ref=e231]:
+            - generic [ref=e232]:
+              - generic [ref=e233]: LLM 模型
+              - button "选择模型..." [ref=e234] [cursor=pointer]:
+                - generic [ref=e235]: 选择模型...
+                - img [ref=e236]
+            - button "测试连接" [ref=e239] [cursor=pointer]:
+              - img [ref=e240]
+              - text: 测试连接
+        - generic [ref=e248]:
+          - img [ref=e249]
+          - generic [ref=e251]: 支持任何 OpenAI 格式兼容的 API（如 Moonshot、智谱、零一万物等）， 选择 "自定义" 并填写正确的 Base URL 即可。

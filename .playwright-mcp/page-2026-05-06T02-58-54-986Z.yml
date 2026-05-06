@@ -1,0 +1,104 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - img [ref=e7]
+    - navigation [ref=e10]:
+      - button "生成" [ref=e11] [cursor=pointer]:
+        - img [ref=e12]
+      - button "模板" [ref=e16] [cursor=pointer]:
+        - img [ref=e17]
+      - button "历史" [active] [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+      - button "设置" [ref=e26] [cursor=pointer]:
+        - img [ref=e27]
+    - generic [ref=e32]: D
+  - main [ref=e33]:
+    - generic [ref=e292]:
+      - generic [ref=e293]:
+        - generic [ref=e294]:
+          - heading "生成历史" [level=1] [ref=e295]
+          - paragraph [ref=e296]: 查看和下载已生成的文档
+        - button "刷新" [ref=e297] [cursor=pointer]:
+          - img [ref=e298]
+          - text: 刷新
+      - generic [ref=e302]:
+        - generic [ref=e303]:
+          - img [ref=e305]
+          - generic [ref=e308]:
+            - paragraph [ref=e309]: 2026-02-18_ai量化交易_from_template_formatted.docx
+            - generic [ref=e310]:
+              - generic [ref=e311]: 72.3 KB
+              - generic [ref=e312]: 2月18日 23:17
+          - button [ref=e313] [cursor=pointer]:
+            - img [ref=e314]
+        - generic [ref=e317]:
+          - img [ref=e319]
+          - generic [ref=e322]:
+            - paragraph [ref=e323]: 2026-02-18_ai量化交易_from_template.md
+            - generic [ref=e324]:
+              - generic [ref=e325]: 45.7 KB
+              - generic [ref=e326]: 2月18日 23:17
+          - button [ref=e327] [cursor=pointer]:
+            - img [ref=e328]
+        - generic [ref=e331]:
+          - img [ref=e333]
+          - generic [ref=e336]:
+            - paragraph [ref=e337]: 2026-02-18_2026年春晚调研报告_from_template_formatted.docx
+            - generic [ref=e338]:
+              - generic [ref=e339]: 41.0 KB
+              - generic [ref=e340]: 2月18日 22:35
+          - button [ref=e341] [cursor=pointer]:
+            - img [ref=e342]
+        - generic [ref=e345]:
+          - img [ref=e347]
+          - generic [ref=e350]:
+            - paragraph [ref=e351]: 2026-02-18_2026年春晚调研报告_from_template.md
+            - generic [ref=e352]:
+              - generic [ref=e353]: 8.4 KB
+              - generic [ref=e354]: 2月18日 22:35
+          - button [ref=e355] [cursor=pointer]:
+            - img [ref=e356]
+        - generic [ref=e359]:
+          - img [ref=e361]
+          - generic [ref=e364]:
+            - paragraph [ref=e365]: test_spacing.docx
+            - generic [ref=e366]:
+              - generic [ref=e367]: 36.4 KB
+              - generic [ref=e368]: 2月18日 22:31
+          - button [ref=e369] [cursor=pointer]:
+            - img [ref=e370]
+        - generic [ref=e373]:
+          - img [ref=e375]
+          - generic [ref=e378]:
+            - paragraph [ref=e379]: 2026-02-18_ai方向_from_template_formatted.docx
+            - generic [ref=e380]:
+              - generic [ref=e381]: 40.7 KB
+              - generic [ref=e382]: 2月18日 22:19
+          - button [ref=e383] [cursor=pointer]:
+            - img [ref=e384]
+        - generic [ref=e387]:
+          - img [ref=e389]
+          - generic [ref=e392]:
+            - paragraph [ref=e393]: 2026-02-18_ai方向_from_template.md
+            - generic [ref=e394]:
+              - generic [ref=e395]: 9.0 KB
+              - generic [ref=e396]: 2月18日 22:19
+          - button [ref=e397] [cursor=pointer]:
+            - img [ref=e398]
+        - generic [ref=e401]:
+          - img [ref=e403]
+          - generic [ref=e406]:
+            - paragraph [ref=e407]: 2026-01-28_3_5年AI发展方向_from_template.md
+            - generic [ref=e408]:
+              - generic [ref=e409]: 16.7 KB
+              - generic [ref=e410]: 2月3日 14:58
+          - button [ref=e411] [cursor=pointer]:
+            - img [ref=e412]
+        - generic [ref=e415]:
+          - img [ref=e417]
+          - generic [ref=e420]:
+            - paragraph [ref=e421]: README.md
+            - generic [ref=e422]:
+              - generic [ref=e423]: 864 B
+              - generic [ref=e424]: 2月3日 14:58
+          - button [ref=e425] [cursor=pointer]:
+            - img [ref=e426]
