@@ -120,18 +120,30 @@ export function ConfigPanel() {
   }
 
   const handleSave = async () => {
-    if (!formApiKey.trim() || formApiKey.trim().length < 10) {
+    const trimmedApiKey = formApiKey.trim()
+    const hasSavedApiKey = !!config?.hasApiKey
+
+    if (!hasSavedApiKey && trimmedApiKey.length < 10) {
       setMessage({ type: 'error', text: '请输入有效的 API Key（至少 10 个字符）' })
       return
     }
+    if (trimmedApiKey && trimmedApiKey.length < 10) {
+      setMessage({ type: 'error', text: 'API Key 至少 10 个字符；留空则保留已保存的 Key' })
+      return
+    }
+    if (!formBaseUrl.trim() || !formModel.trim()) {
+      setMessage({ type: 'error', text: 'Base URL 和模型名称不能为空' })
+      return
+    }
+
     setSaving(true)
     setMessage(null)
     try {
       const res = await updateModelConfig({
         format: formFormat,
         baseUrl: formBaseUrl.trim(),
-        apiKey: formApiKey.trim(),
         model: formModel.trim(),
+        ...(trimmedApiKey ? { apiKey: trimmedApiKey } : {}),
       })
       if (res.success) {
         setMessage({ type: 'success', text: '配置已保存' })

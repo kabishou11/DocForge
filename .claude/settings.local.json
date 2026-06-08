@@ -53,7 +53,11 @@
       "mcp__playwright__browser_snapshot",
       "Bash(gh repo *)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "PowerShell(git push *)",
+      "mcp__codegraph__codegraph_files",
+      "mcp__codegraph__codegraph_status",
+      "PowerShell(F:\\\\1work\\\\xyjk_Proposal\\\\.venv\\\\Scripts\\\\python.exe -m py_compile F:\\\\1work\\\\xyjk_Proposal\\\\scripts\\\\docforge_py.py 2>&1)"
     ]
   }
 }

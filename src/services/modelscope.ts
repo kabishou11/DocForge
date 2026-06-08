@@ -2,10 +2,8 @@
  * ModelScope API 服务 - 支持模型配置
  */
 
-import { ModelInfo, ModelProvider } from '../types';
+import { ModelInfo } from '../types';
 import { ConfigManager } from '../config';
-
-const MODELSCOPE_BASE_URL = 'https://api-inference.modelscope.cn/v1';
 
 export interface ModelScopeConfig {
   apiKey: string;
@@ -97,14 +95,18 @@ const POPULAR_MODELS: ModelInfo[] = [
  * ModelScope API 服务类
  */
 export class ModelScopeService {
-  private apiKey: string;
-  private baseUrl: string;
   private configManager: ConfigManager;
 
   constructor(configManager?: ConfigManager) {
     this.configManager = configManager || new ConfigManager();
-    this.apiKey = this.configManager.getApiKey();
-    this.baseUrl = this.configManager.getBaseUrl();
+  }
+
+  private getApiKey(): string {
+    return this.configManager.getApiKey();
+  }
+
+  private getBaseUrl(): string {
+    return this.configManager.getBaseUrl().replace(/\/$/, '');
   }
 
   /**
@@ -173,14 +175,17 @@ export class ModelScopeService {
    * 测试 API 连接
    */
   async testConnection(): Promise<{ success: boolean; message: string }> {
-    if (!this.apiKey) {
+    const apiKey = this.getApiKey();
+    const baseUrl = this.getBaseUrl();
+
+    if (!apiKey) {
       return { success: false, message: '未配置 API Key' };
     }
 
     try {
-      const response = await fetch(`${this.baseUrl}/models`, {
+      const response = await fetch(`${baseUrl}/models`, {
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         }
       });
@@ -200,16 +205,18 @@ export class ModelScopeService {
    */
   async testLLM(): Promise<{ success: boolean; message: string; responseTime: number }> {
     const startTime = Date.now();
+    const apiKey = this.getApiKey();
+    const baseUrl = this.getBaseUrl();
 
-    if (!this.apiKey) {
+    if (!apiKey) {
       return { success: false, message: '未配置 API Key', responseTime: 0 };
     }
 
     try {
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -244,7 +251,7 @@ export class ModelScopeService {
     return {
       provider: this.configManager.getFormat(),
       baseUrl: this.configManager.getBaseUrl(),
-      hasApiKey: !!this.apiKey,
+      hasApiKey: !!this.getApiKey(),
       llm: this.getSelectedLLM(),
       vl: this.getSelectedVL()
     };

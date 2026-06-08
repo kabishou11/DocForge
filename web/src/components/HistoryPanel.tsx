@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { API_BASE } from '../hooks/useApi'
 import {
   FileText, Download, Clock, Loader2, FileSpreadsheet, History,
   Trash2, Eye, X, Search
@@ -54,14 +55,18 @@ export function HistoryPanel() {
   }
 
   const handleDownload = (item: HistoryItem) => {
-    window.open(`http://localhost:3456/api/download?path=${encodeURIComponent(item.path)}`, '_blank')
+    window.open(`${API_BASE}/download?path=${encodeURIComponent(item.path)}`, '_blank')
   }
 
   const handlePreview = async (item: HistoryItem) => {
     setPreviewLoading(true)
     try {
       const data = await previewHistory(item.name)
-      setPreviewItem({ name: item.name, content: data.content, type: data.type })
+      setPreviewItem({
+        name: item.name,
+        content: data.content || data.preview || data.error || data.message || '无法加载预览',
+        type: data.type || 'unknown'
+      })
     } catch {
       setPreviewItem({ name: item.name, content: '无法加载预览', type: 'unknown' })
     } finally {
@@ -80,11 +85,18 @@ export function HistoryPanel() {
   }
 
   // Filtered items
-  const filteredItems = items.filter(item => {
-    if (filter !== 'all' && item.type !== filter) return false
-    if (searchQuery && !item.name.toLowerCase().includes(searchQuery.toLowerCase())) return false
-    return true
-  })
+  const docxCount = items.filter(item => item.type === 'docx').length
+  const mdCount = items.filter(item => item.type === 'md').length
+  const filteredItems = items
+    .filter(item => {
+      if (filter !== 'all' && item.type !== filter) return false
+      if (searchQuery && !item.name.toLowerCase().includes(searchQuery.toLowerCase())) return false
+      return true
+    })
+    .sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'docx' ? -1 : 1
+      return new Date(b.created).getTime() - new Date(a.created).getTime()
+    })
 
   return (
     <div className="flex flex-col h-full">
@@ -96,7 +108,7 @@ export function HistoryPanel() {
           </div>
           <div>
             <h1 className="text-lg font-semibold">生成历史</h1>
-            <p className="text-xs text-text-tertiary mt-0.5">查看和下载已生成的文档</p>
+            <p className="text-xs text-text-tertiary mt-0.5">DOCX-first 展示，优先下载可交付 Word 文档</p>
           </div>
         </div>
         <button
@@ -133,7 +145,7 @@ export function HistoryPanel() {
             className="w-full !pl-8 !py-1.5 text-xs"
           />
         </div>
-        <span className="text-xs text-text-muted">{filteredItems.length} 项</span>
+        <span className="text-xs text-text-muted">DOCX {docxCount} / MD {mdCount} / 当前 {filteredItems.length}</span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-8">

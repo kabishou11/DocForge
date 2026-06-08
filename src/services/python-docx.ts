@@ -7,11 +7,58 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import * as os from 'os';
+import { randomUUID } from 'crypto';
 
 // 项目根目录（从 dist/services/ 向上两级）
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
 const PYTHON_SCRIPT = path.join(PROJECT_ROOT, 'scripts', 'docforge_py.py');
 const VENV_PYTHON = path.join(PROJECT_ROOT, '.venv', 'Scripts', 'python.exe');
+
+function createTempToken(prefix: string): string {
+  return `${prefix}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+}
+
+function resolvePythonCommand(): { command: string; args: string[] } {
+  if (fs.existsSync(VENV_PYTHON)) {
+    return { command: VENV_PYTHON, args: [] };
+  }
+
+  if (process.platform === 'win32') {
+    return { command: 'py', args: ['-3.13'] };
+  }
+
+  return { command: process.env.PYTHON || 'python3', args: [] };
+}
+
+const PYTHON_TIMEOUT_MS = 120_000;
+const MAX_CAPTURED_OUTPUT = 64 * 1024;
+
+function appendLimited(current: string, chunk: string): string {
+  const next = current + chunk;
+  if (next.length <= MAX_CAPTURED_OUTPUT) {
+    return next;
+  }
+  // 保留头部和尾部，中间标记截断，避免丢失 traceback 开头
+  const headSize = Math.floor(MAX_CAPTURED_OUTPUT / 4);
+  const tailSize = MAX_CAPTURED_OUTPUT - headSize - 20;
+  return next.slice(0, headSize) + '\n... [truncated] ...\n' + next.slice(-tailSize);
+}
+
+function replaceFileSafely(tempOutput: string, outputPath: string): void {
+  // 使用 copyFileSync + unlinkSync 替代 renameSync，避免 Windows 文件锁问题
+  try {
+    fs.copyFileSync(tempOutput, outputPath);
+  } catch (error) {
+    throw error;
+  } finally {
+    // 始终清理临时文件
+    try {
+      fs.unlinkSync(tempOutput);
+    } catch {
+      // 临时文件清理失败不影响生成结果
+    }
+  }
+}
 
 export interface PythonStyleRules {
   title: {
@@ -52,7 +99,8 @@ export interface PythonStyleRules {
     font: { name: string; size: number };
     paragraph: { alignment: string; indent_left: number; space_before: number; space_after: number };
   };
-  page_margin: { top: number; bottom: number; left: number; right: number };
+  page_margin: { top: number; bottom: number; left: number; right: number; header_distance?: number; footer_distance?: number; gutter?: number };
+  page_size?: { width: number; height: number; orientation: 'portrait' | 'landscape' };
 }
 
 export interface PythonDocxOptions {
@@ -60,32 +108,47 @@ export interface PythonDocxOptions {
   outputPath: string;
   styleRules?: PythonStyleRules;
   addTimestamp?: boolean;
+  assetRoot?: string;
+}
+
+export interface PythonDocxValidationResult {
+  valid: boolean;
+  errors: string[];
 }
 
 /**
  * 调用 Python 脚本
  */
-function runPythonScript(args: string[]): Promise<string> {
+function runPythonScript(args: string[], timeoutMs = PYTHON_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
-    // 优先使用 venv，否则回退到系统 Python
-    const pythonExe = fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : 'python';
+    const pythonCommand = resolvePythonCommand();
 
-    const child = spawn(pythonExe, [PYTHON_SCRIPT, ...args], {
+    const child = spawn(pythonCommand.command, [...pythonCommand.args, PYTHON_SCRIPT, ...args], {
       cwd: PROJECT_ROOT
     });
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill('SIGTERM');
+      reject(new Error(`Python script timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
 
     let stdout = '';
     let stderr = '';
 
     child.stdout.on('data', (data) => {
-      stdout += data.toString();
+      stdout = appendLimited(stdout, data.toString());
     });
 
     child.stderr.on('data', (data) => {
-      stderr += data.toString();
+      stderr = appendLimited(stderr, data.toString());
     });
 
     child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       if (code === 0) {
         resolve(stdout.trim());
       } else {
@@ -94,6 +157,9 @@ function runPythonScript(args: string[]): Promise<string> {
     });
 
     child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       reject(error);
     });
   });
@@ -103,7 +169,7 @@ function runPythonScript(args: string[]): Promise<string> {
  * 从 DOCX 模板提取样式
  */
 export async function extractStylesFromDocx(docxPath: string): Promise<PythonStyleRules> {
-  const tempJson = path.join(os.tmpdir(), `docforge_styles_${Date.now()}.json`);
+  const tempJson = path.join(os.tmpdir(), `${createTempToken('docforge_styles')}.json`);
 
   try {
     await runPythonScript(['extract', docxPath, tempJson]);
@@ -111,13 +177,19 @@ export async function extractStylesFromDocx(docxPath: string): Promise<PythonSty
     const content = fs.readFileSync(tempJson, 'utf-8');
     const styles = JSON.parse(content);
 
-    fs.unlinkSync(tempJson);
-
     return styles as PythonStyleRules;
   } catch (error) {
     // 如果失败，返回默认样式
     console.error('提取样式失败，使用默认样式:', error);
     return getDefaultStyleRules();
+  } finally {
+    try {
+      if (fs.existsSync(tempJson)) {
+        fs.unlinkSync(tempJson);
+      }
+    } catch {
+      // 忽略清理错误
+    }
   }
 }
 
@@ -125,31 +197,36 @@ export async function extractStylesFromDocx(docxPath: string): Promise<PythonSty
  * 生成 DOCX 文档（使用 Python）
  */
 export async function generateDocxWithPython(options: PythonDocxOptions): Promise<string> {
-  const { markdown, outputPath, styleRules, addTimestamp } = options;
+  const { markdown, outputPath, styleRules, addTimestamp, assetRoot } = options;
+  const markdownWithTimestamp = addTimestamp
+    ? `${markdown}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n生成时间：${new Date().toLocaleString('zh-CN')}\n`
+    : markdown;
 
   // 使用系统临时目录存放临时文件
-  const tempMd = path.join(os.tmpdir(), `docforge_${Date.now()}.md`);
-  fs.writeFileSync(tempMd, markdown, 'utf-8');
+  const tempMd = path.join(os.tmpdir(), `${createTempToken('docforge')}.md`);
+  fs.writeFileSync(tempMd, markdownWithTimestamp, 'utf-8');
 
   let tempStyle = '';
+  const outputDir = path.dirname(outputPath);
+  const tempOutput = path.join(outputDir, `${createTempToken('docforge_output')}_${path.basename(outputPath)}.tmp`);
+  fs.mkdirSync(outputDir, { recursive: true });
   if (styleRules) {
-    tempStyle = path.join(os.tmpdir(), `docforge_style_${Date.now()}.json`);
+    tempStyle = path.join(os.tmpdir(), `${createTempToken('docforge_style')}.json`);
     fs.writeFileSync(tempStyle, JSON.stringify(styleRules, null, 2), 'utf-8');
   }
 
   try {
     // 构建命令
-    const args = ['generate', tempMd, outputPath];
+    const args = ['generate', tempMd, tempOutput];
     if (tempStyle) {
       args.push('--style', tempStyle);
     }
+    if (assetRoot) {
+      args.push('--asset-root', assetRoot);
+    }
 
     await runPythonScript(args);
-
-    // 添加时间戳（如果需要）
-    if (addTimestamp) {
-      await addTimestampToDocx(outputPath);
-    }
+    replaceFileSafely(tempOutput, outputPath);
 
     return outputPath;
   } finally {
@@ -159,6 +236,9 @@ export async function generateDocxWithPython(options: PythonDocxOptions): Promis
       if (tempStyle && fs.existsSync(tempStyle)) {
         fs.unlinkSync(tempStyle);
       }
+      if (fs.existsSync(tempOutput)) {
+        fs.unlinkSync(tempOutput);
+      }
     } catch {
       // 忽略清理错误
     }
@@ -166,16 +246,15 @@ export async function generateDocxWithPython(options: PythonDocxOptions): Promis
 }
 
 /**
- * 添加时间戳到 DOCX（简单实现）
+ * 校验 DOCX 包结构
  */
-async function addTimestampToDocx(docxPath: string): Promise<void> {
-  const timestamp = `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n生成时间：${new Date().toLocaleString('zh-CN')}`;
-
-  // 追加到 Markdown 文件
-  const mdPath = docxPath.replace('_formatted.docx', '.md');
-  if (fs.existsSync(mdPath)) {
-    const content = fs.readFileSync(mdPath, 'utf-8');
-    fs.writeFileSync(mdPath, content + timestamp, 'utf-8');
+export async function validateDocxWithPython(docxPath: string): Promise<PythonDocxValidationResult> {
+  try {
+    const stdout = await runPythonScript(['validate', docxPath]);
+    return JSON.parse(stdout) as PythonDocxValidationResult;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { valid: false, errors: [message] };
   }
 }
 
@@ -223,12 +302,14 @@ export function getDefaultStyleRules(): PythonStyleRules {
       font: { name: 'Consolas', size: 11 },
       paragraph: { alignment: 'left', indent_left: 0.4, space_before: 6, space_after: 6 }
     },
-    page_margin: { top: 1.0, bottom: 1.0, left: 1.25, right: 1.25 }
+    page_margin: { top: 1.0, bottom: 1.0, left: 1.25, right: 1.25 },
+    page_size: { width: 8.27, height: 11.69, orientation: 'portrait' as const }
   };
 }
 
 export default {
   extractStylesFromDocx,
   generateDocxWithPython,
+  validateDocxWithPython,
   getDefaultStyleRules
 };

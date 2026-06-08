@@ -19,6 +19,7 @@ import {
 } from "../services/python-docx";
 import { StyleExtractor, StyleRules } from "../services/document-synthesizer";
 import { searchWeb, formatSearchContext } from "../services/web-search";
+import { buildTimestampedDocumentStem } from "../utils/path-safety";
 
 export interface GenerationProgress {
   step: string;
@@ -40,6 +41,7 @@ export interface GenerateOptions {
   onProgress?: (progress: GenerationProgress) => void;
   wordCount?: number;
   enableSearch?: boolean;  // 是否启用联网搜索
+  signal?: AbortSignal;
 }
 
 export interface ControllerOptions {
@@ -345,7 +347,7 @@ export class TuiController extends EventEmitter {
   async testConnection(): Promise<{ success: boolean; message: string; time?: number }> {
     const start = Date.now();
     try {
-      const result = await this.modelService.testLLM();
+      const result = await this.llmClient.testConnection();
       return {
         success: result.success,
         message: result.message,
@@ -426,12 +428,12 @@ export class TuiController extends EventEmitter {
   /**
    * 生成文档大纲
    */
-  async generateOutline(topic: string, description: string): Promise<{
+  async generateOutline(topic: string, description: string, signal?: AbortSignal): Promise<{
     sections: Array<{ level: number; title: string; summary: string }>;
     wordCount: number;
   }> {
     try {
-      const response = await this.llmClient.generateOutline(topic, description);
+      const response = await this.llmClient.generateOutline(topic, description, 'v0.1', signal);
       return {
         sections: response.sections.map(s => ({
           level: s.level,
@@ -451,35 +453,31 @@ export class TuiController extends EventEmitter {
   async generateDocument(
     topic: string,
     description: string,
-    outline: { sections: Array<{ level: number; title: string; summary: string }>; wordCount: number }
+    outline: { sections: Array<{ level: number; title: string; summary: string }>; wordCount: number },
+    signal?: AbortSignal
   ): Promise<{
     filePath: string;
+    docxPath: string;
     sectionCount: number;
     wordCount: number;
   }> {
     try {
       // 生成文档内容
-      const content = await this.llmClient.generateDocument(topic, description, outline);
+      const content = await this.llmClient.generateDocument(topic, description, outline, signal);
 
-      // 确保输出目录存在
-      const outputDir = "./output";
-      if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
-      }
-
-      // 生成文件名
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const safeTopic = topic.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, "_").slice(0, 30);
-      const filePath = path.join(outputDir, `${timestamp}_${safeTopic}.md`);
-
-      // 保存文件
-      fs.writeFileSync(filePath, content, "utf-8");
+      const { filePath, docxPath } = await this.persistDocumentOutputs(
+        topic,
+        content,
+        getDefaultStyleRules(),
+        'from_scratch'
+      );
 
       // 统计字数
       const wordCount = content.length;
 
       return {
         filePath,
+        docxPath,
         sectionCount: outline.sections.length,
         wordCount,
       };
@@ -499,7 +497,7 @@ export class TuiController extends EventEmitter {
     options?: GenerateOptions
   ): Promise<{
     filePath: string;
-    docxPath?: string;
+    docxPath: string;
     sectionCount: number;
     wordCount: number;
     modelsUsed: {
@@ -524,6 +522,7 @@ export class TuiController extends EventEmitter {
       const ocrConfig = this.configManager.getOCR();
       const targetWords = options?.wordCount || 3000;
       const enableSearch = options?.enableSearch !== false; // 默认开启
+      const signal = options?.signal;
 
       let templateContent: string;
       let styleRules: StyleRules;
@@ -549,7 +548,7 @@ export class TuiController extends EventEmitter {
       report('outline', 'started', { message: '分析模板结构，生成大纲...' });
 
       const outline = await this.llmClient.generateOutlineFromTemplate(
-        templateContent, topic, description, targetWords
+        templateContent, topic, description, targetWords, signal
       );
 
       const sections = outline.sections;
@@ -579,7 +578,7 @@ export class TuiController extends EventEmitter {
             searchQuery: section.keywords
           });
 
-          const results = await searchWeb(`${section.keywords} ${topic}`, 3);
+          const results = await searchWeb(`${section.keywords} ${topic}`, 3, signal);
           searchContext = formatSearchContext(results);
 
           report('section_search', 'completed', {
@@ -613,7 +612,8 @@ export class TuiController extends EventEmitter {
             targetWords: section.targetWords || Math.round(targetWords / sections.length),
             stylePrompt,
             previousContext,
-            searchContext
+            searchContext,
+            signal
           },
           (chunk) => {
             totalWords += chunk.length;
@@ -644,27 +644,13 @@ export class TuiController extends EventEmitter {
       report('docx_generate', 'started', { message: '合并内容，生成 DOCX...' });
 
       const fullContent = allSections.join('\n\n');
-
-      const outputDir = "./output";
-      if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
-      }
-
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const safeTopic = topic.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, "_").slice(0, 30);
-      const basePath = path.join(outputDir, `${timestamp}_${safeTopic}_from_template`);
-
-      const mdPath = `${basePath}.md`;
-      fs.writeFileSync(mdPath, fullContent, "utf-8");
-
       const pythonStyleRules = this.convertToPythonStyle(styleRules);
-
-      const docxPath = await generateDocxWithPython({
-        markdown: fullContent,
-        outputPath: `${basePath}_formatted.docx`,
-        styleRules: pythonStyleRules,
-        addTimestamp: true
-      });
+      const { filePath: mdPath, docxPath } = await this.persistDocumentOutputs(
+        topic,
+        fullContent,
+        pythonStyleRules,
+        'from_template'
+      );
 
       report('docx_generate', 'completed', {
         message: path.basename(docxPath),
@@ -687,6 +673,36 @@ export class TuiController extends EventEmitter {
       report('error', 'error', { message: error instanceof Error ? error.message : String(error) });
       throw new Error(`生成失败: ${error instanceof Error ? error.message : error}`);
     }
+  }
+
+  /**
+   * 保存 Markdown 预览和 DOCX 成品
+   */
+  private async persistDocumentOutputs(
+    topic: string,
+    markdown: string,
+    styleRules: PythonStyleRules,
+    outputKind: 'from_scratch' | 'from_template'
+  ): Promise<{ filePath: string; docxPath: string }> {
+    const outputDir = './output';
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    const baseStem = buildTimestampedDocumentStem(topic, outputKind);
+    const filePath = path.join(outputDir, `${baseStem}.md`);
+    const docxPath = path.join(outputDir, `${baseStem}.docx`);
+
+    fs.writeFileSync(filePath, markdown, 'utf-8');
+
+    await generateDocxWithPython({
+      markdown,
+      outputPath: docxPath,
+      styleRules,
+      addTimestamp: true
+    });
+
+    return { filePath, docxPath };
   }
 
   /**

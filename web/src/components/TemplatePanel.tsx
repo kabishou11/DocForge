@@ -67,7 +67,11 @@ export function TemplatePanel() {
   const handlePreview = async (t: Template) => {
     try {
       const data = await previewTemplate(t.name)
-      setPreviewData({ name: t.name, content: data.content || data.preview || '', type: data.type })
+      setPreviewData({
+        name: t.name,
+        content: data.content || data.preview || data.error || data.message || '无法加载预览',
+        type: data.type || 'unknown'
+      })
     } catch {
       setPreviewData({ name: t.name, content: '无法加载预览', type: 'unknown' })
     }

@@ -49,6 +49,7 @@ export interface ChatOptions {
   stream?: boolean;
   temperature?: number;
   maxTokens?: number;
+  signal?: AbortSignal;
 }
 
 export interface ChatResponse {
@@ -160,6 +161,13 @@ export class LLMClient extends EventEmitter {
   }
 
   /**
+   * 使用当前适配器测试模型连接。
+   */
+  async testConnection(): Promise<{ success: boolean; message: string }> {
+    return this.adapter.testConnection();
+  }
+
+  /**
    * 发送聊天请求（非流式）
    *
    * 使用示例：
@@ -181,6 +189,7 @@ export class LLMClient extends EventEmitter {
       try {
         return await this.adapter.chat(options.messages, chatOptions);
       } catch (error) {
+        if (options.signal?.aborted) throw error;
         if (attempt === maxRetries) throw error;
         await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
       }
@@ -219,7 +228,8 @@ export class LLMClient extends EventEmitter {
   async generateOutline(
     topic: string,
     description: string,
-    styleVersion: string = 'v0.1'
+    styleVersion: string = 'v0.1',
+    signal?: AbortSignal
   ): Promise<{
     sections: Array<{ id: string; title: string; level: number; summary: string }>;
     wordCount: string;
@@ -241,7 +251,8 @@ export class LLMClient extends EventEmitter {
     const response = await this.chat({
       model: this.modelId,
       messages: [{ role: 'user', content: prompt }],
-      enableThinking: false
+      enableThinking: false,
+      signal
     });
 
     const content = extractText(response.choices[0].message.content);
@@ -259,7 +270,8 @@ export class LLMClient extends EventEmitter {
   async generateSection(
     section: { id: string; title: string; level: number; summary: string },
     topic: string,
-    styleConstraints: Record<string, unknown>
+    styleConstraints: Record<string, unknown>,
+    signal?: AbortSignal
   ): Promise<string> {
     const prompt = `基于以下信息生成章节内容：
 
@@ -278,7 +290,8 @@ export class LLMClient extends EventEmitter {
       model: this.modelId,
       messages: [{ role: 'user', content: prompt }],
       enableThinking: true,
-      temperature: 0.7
+      temperature: 0.7,
+      signal
     });
 
     return extractText(response.choices[0].message.content);
@@ -290,7 +303,8 @@ export class LLMClient extends EventEmitter {
   async generateDocument(
     topic: string,
     description: string,
-    outline: { sections: Array<{ level: number; title: string; summary: string }>; wordCount: number | string }
+    outline: { sections: Array<{ level: number; title: string; summary: string }>; wordCount: number | string },
+    signal?: AbortSignal
   ): Promise<string> {
     const prompt = `请根据以下信息生成一篇完整的文档，使用 Markdown 格式。
 
@@ -315,7 +329,8 @@ ${outline.sections.map((s, i) => `${'#'.repeat(s.level)} ${s.title}\n${s.summary
       messages: [{ role: 'user', content: prompt }],
       enableThinking: true,
       temperature: 0.7,
-      maxTokens: 16384
+      maxTokens: 16384,
+      signal
     });
 
     return extractText(response.choices[0].message.content);
@@ -329,7 +344,8 @@ ${outline.sections.map((s, i) => `${'#'.repeat(s.level)} ${s.title}\n${s.summary
     topic: string,
     description: string,
     stylePrompt?: string,
-    wordCount?: number
+    wordCount?: number,
+    signal?: AbortSignal
   ): Promise<string> {
     // 取前 4000 字符作为风格参考，保留更多结构信息
     const truncatedTemplate = templateContent.length > 4000
@@ -376,11 +392,15 @@ ${truncatedTemplate}`;
           messages: [{ role: 'user', content: prompt }],
           enableThinking: true,
           temperature: 0.7,
-          maxTokens: 16384
+          maxTokens: 16384,
+          signal
         });
 
         return extractText(response.choices[0].message.content);
       } catch (error) {
+        if (signal?.aborted) {
+          throw error;
+        }
         lastError = error instanceof Error ? error : new Error(String(error));
         if (attempt < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, 3000));
@@ -398,7 +418,8 @@ ${truncatedTemplate}`;
     templateContent: string,
     topic: string,
     description: string,
-    targetWords: number = 3000
+    targetWords: number = 3000,
+    signal?: AbortSignal
   ): Promise<{ sections: Array<{ title: string; level: number; keywords: string; targetWords: number }> }> {
     const truncated = templateContent.length > 3000
       ? templateContent.slice(0, 3000) + '\n...'
@@ -435,7 +456,8 @@ ${truncated}
       messages: [{ role: 'user', content: prompt }],
       enableThinking: false,
       temperature: 0.5,
-      maxTokens: 2048
+      maxTokens: 2048,
+      signal
     });
 
     const content = extractText(response.choices[0].message.content);
@@ -458,10 +480,11 @@ ${truncated}
       stylePrompt: string;
       previousContext: string;
       searchContext: string;
+      signal?: AbortSignal;
     },
     onChunk: (text: string) => void
   ): Promise<string> {
-    const { topic, sectionTitle, sectionLevel, targetWords, stylePrompt, previousContext, searchContext } = options;
+    const { topic, sectionTitle, sectionLevel, targetWords, stylePrompt, previousContext, searchContext, signal } = options;
 
     const headingMark = '#'.repeat(sectionLevel + 1); // level 1 → ##, level 2 → ###
 
@@ -495,7 +518,8 @@ ${truncated}
       messages: [{ role: 'user', content: prompt }],
       enableThinking: true,
       temperature: 0.7,
-      maxTokens: Math.max(4096, targetWords * 3)
+      maxTokens: Math.max(4096, targetWords * 3),
+      signal
     });
 
     for await (const chunk of stream) {

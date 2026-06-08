@@ -10,8 +10,6 @@ DocForge 是一个基于 AI 的专业文档生成系统，支持从模板生成�
 
 **核心价值**: 让 AI 生成的内容能够直接给领导看，无需手动排版。
 
-**当前交付物**: 以 DOCX 为主，Markdown 仅用于开发预览和中间态。
-
 ---
 
 ## 架构设计（简化版）
@@ -23,10 +21,10 @@ DocForge 是一个基于 AI 的专业文档生成系统，支持从模板生成�
 │                    DocForge 简化处理流程                              │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
-│  【阶段1: DOCX 样式提取】                                              │
+│  【阶段1: OCR 提取样式】                                              │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐                      │
-│  │ DOCX模板  │───>│ python-docx│───>│ 样式规则  │                    │
-│  │          │    │ 解析样式   │    │ StyleRules│                     │
+│  │ DOCX模板  │───>│  Mammoth │───>│ 样式规则  │                      │
+│  │          │    │ 提取文本  │    │ StyleRules│                     │
 │  └──────────┘    └──────────┘    └──────────┘                      │
 │                                                                      │
 │  【阶段2: LLM 生成内容】                                              │
@@ -37,22 +35,22 @@ DocForge 是一个基于 AI 的专业文档生成系统，支持从模板生成�
 │                                                                      │
 │  【阶段3: 文档合成】                                                  │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐                      │
-│  │ Markdown │───>│ python-docx│───>│ DOCX    │                      │
-│  │          │    │ 生成器     │          │                      │
+│  │ Markdown │───>│ Document │───>│ DOCX    │                      │
+│  │          │    │ Synthesizer│          │                      │
 │  └──────────┘    └──────────┘    └──────────┘                      │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 组件使用（简化版）
+### 模型使用（简化版）
 
-| 阶段 | 组件 | 作用 |
+| 阶段 | 模型 | 作用 |
 |------|------|------|
-| 样式提取 | python-docx | 提取 DOCX 模板的样式规则 |
+| 样式提取 | OCR 模型 | 提取 DOCX 模板的样式规则 |
 | 内容生成 | LLM 模型 | 基于模板风格生成新内容 |
-| 格式还原 | python-docx 生成器 | 应用样式生成 DOCX |
+| 格式还原 | DocumentSynthesizer | 应用样式生成 DOCX |
 
-**注意**: 不再需要 VL 模型；DOCX 样式提取由 `python-docx` 负责，LLM 只负责内容生成。
+**注意**: 不再需要 VL 模型，OCR 模型即可完成样式提取。
 
 ---
 
@@ -63,7 +61,7 @@ DocForge 是一个基于 AI 的专业文档生成系统，支持从模板生成�
   基于模板生成文档
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-✓ 📄 模板样式提取
+✓ 📄 OCR提取模板样式
    └─ 样式提取完成
 
 ✓ ✨ LLM生成内容
@@ -80,9 +78,7 @@ DocForge 是一个基于 AI 的专业文档生成系统，支持从模板生成�
 
 ## 已知限制（重要）
 
-### 历史记录：docx.js 库的局限性
-
-> 下面这些限制是旧主路的真实问题记录。当前主生成链路已经切到 Python `python-docx`，这些限制不再约束最终 DOCX 交付，但保留为历史对照。
+### docx.js 库的局限性
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
@@ -116,49 +112,45 @@ DocForge 是一个基于 AI 的专业文档生成系统，支持从模板生成�
 
 | 难点 | 状态 | 说明 |
 |------|------|------|
-| 难点1: 样式提取不完整 | ✅ 已实现 | StyleExtractor 调用 Python `python-docx` 真实解析 DOCX 样式与页边距 |
-| 难点2: Markdown到DOCX映射不准确 | ✅ 已实现 | Word 原生标题(Heading 1/2/3)+大纲级别+TOC、原生脚注(footnotes.xml)、中文多级编号(一、（一）1.)、表格(tblGrid+对齐+表头重复)、页面大小/方向/装订线 |
-| 难点3: docx.js不支持高级功能 | ✅ 已规避 | docx.js 不再是主生成链路，仅保留为历史/兼容代码 |
+| 难点1: 样式提取不完整 | ❌ 未实现 | StyleExtractor 使用硬编码默认样式，未真正解析 DOCX |
+| 难点2: Markdown到docx映射不准确 | ⚠️ 部分实现 | 基本映射可用，但 docx.js 限制导致不完整 |
+| 难点3: docx.js不支持高级功能 | ✅ 已记录 | 无法突破库限制，需用户手动后处理 |
 | 难点4: LLM生成内容不可控 | ⚠️ 部分实现 | 仅通过提示词约束，无格式校验反馈 |
-| 难点5: 部署和性能问题 | ⚠️ 部分实现 | 已有请求超时、取消传播、临时文件清理，仍需缓存和大文件优化 |
+| 难点5: 部署和性能问题 | ❌ 未实现 | 无性能优化、超时处理、错误恢复 |
 
-### 难点1: 样式提取不完整（✅ 已实现）
+### 难点1: 样式提取不完整（❌ 未实现）
 
-**当前方案**：
+**当前问题**：
 ```typescript
+// StyleExtractor.extractFromDocx 返回的是硬编码默认值
 static async extractFromDocx(docxPath: string): Promise<StyleRules> {
-  const pythonRules = ext === '.docx'
-    ? await extractStylesFromDocx(docxPath)
-    : getDefaultStyleRules();
-  return this.fromPythonStyleRules(pythonRules);
+  // 直接返回默认样式，未解析实际 DOCX 文件
+  return {
+    title: { fontFamily: '黑体', fontSize: 22, ... },
+    // ...
+  };
 }
 ```
 
-**已覆盖**：
-1. 读取 DOCX 标题、正文、标题层级的字体、字号、加粗、斜体。
-2. 提取页边距、段前段后、首行缩进、行距。
-3. 提取页面大小、方向（横/纵）、页眉页脚距离、装订线。
-4. 对未使用 Word Heading 样式的中文正式文档，从实际段落抽样还原样式。
+**待实现方案**：
+1. 解压 DOCX (zip) 解析 styles.xml
+2. 使用 xml2js 读取 <w:style> 元素
+3. 提取字体、字号、颜色、段落设置
 
-### 难点2: Markdown到DOCX映射（✅ 已实现）
+### 难点2: Markdown到docx映射（⚠️ 部分实现）
 
 **已实现**：
-- ✅ 标题 (# ## ###) → Word 原生 Heading 1/2/3 样式 + outlineLvl 大纲级别
-- ✅ 自动目录（TOC）→ TOC 域 + 打开时自动更新域（settings.xml updateFields）
-- ✅ 有序列表 (1.) → Word 原生 w:numPr，中文多级编号：一、（一）1.
-- ✅ 无序列表 (-) → Word 原生 w:numPr，多级：• ◦ ▪
-- ✅ Obsidian 任务列表 (- [ ] / - [x]) → 带”待办/完成”状态的正式列表
-- ✅ Obsidian 内部链接 ([[页面|别名]]) → 正式文档文本降噪
-- ✅ Obsidian callout (> [!NOTE]) → 带左边框和底色的提示块
-- ✅ Obsidian 脚注 ([^1]) → Word 原生脚注（footnotes.xml + w:footnoteReference）
+- ✅ 标题 (# ## ###) → HeadingLevel
+- ✅ 列表 (- 1.) → Bullet/Numbering
 - ✅ 引用 (>) → 左边框+斜体
-- ✅ 代码块 (```) → Consolas 字体，可保留语言标题
-- ✅ 表格 (|) → tblGrid + 按页面边距计算列宽 + 对齐行(:---:) + 表头重复(w:tblHeader)
-- ✅ 图片引用 (![]() / ![[]]) → 本地图片嵌入 + 路径安全校验；找不到时保留清晰占位说明
+- ✅ 代码块 (```) → Consolas 字体
+- ✅ 表格 (|) → TableCell
 
-**待增强**：
-- ⏳ 跨页复杂表格（合并单元格）
-- ⏳ 远程图片自动下载嵌入
+**未实现（docx.js 限制）**：
+- ❌ 行内格式混用 (粗体+斜体)
+- ❌ 嵌套列表
+- ❌ 复杂引用样式（多边框）
+- ❌ 脚注尾注
 
 ### 难点3: docx.js 不支持高级功能（✅ 已记录）
 
@@ -194,14 +186,13 @@ private buildStylePrompt(styleRules: StyleRules): string {
 - 反馈循环：格式不符时让 LLM 重试
 - Few-shot 示例：提供格式示例
 
-### 难点5: 部署和性能（⚠️ 部分实现）
+### 难点5: 部署和性能（❌ 未实现）
 
-**当前状态**：
+**待实现**：
 - [ ] 大文件分块处理
-- [x] LLM API 超时重试
-- [x] 用户取消贯穿到上游请求
+- [ ] LLM API 超时重试（当前无超时处理）
 - [ ] 内存监控和清理
-- [x] Python 临时文件清理与 DOCX 临时文件原子落盘
+- [ ] 错误恢复机制
 - [ ] 缓存已提取的样式
 - [ ] DOCX 打包优化
 
@@ -215,7 +206,7 @@ private buildStylePrompt(styleRules: StyleRules): string {
 
 **当前进度显示**：
 ```
-⠙ 📄 模板样式提取
+⠙ 📄 OCR提取模板样式
    └─ ✓ 样式提取完成 - 标题黑体16pt, 正文宋体12pt
 ⠋ ✨ LLM生成内容
    └─ 正在生成文档...
@@ -463,26 +454,6 @@ await controller.generateDocumentFromTemplate(template, topic, desc, {
 
 ## 迭代日志
 
-### 2026-06-08
-
-- [x] Word 原生脚注：替代文末注，使用 footnotes.xml + w:footnoteReference，脚注在 Word 中可自动跳转和编号
-- [x] 中文多级编号体系：有序列表"一、（一）1."，无序列表"• ◦ ▪"，显式 w:numPr + abstractNum 定义
-- [x] 表格增强：按页面边距计算列宽(tblGrid)、对齐行解析(:---:)、表头跨页重复(w:tblHeader)、escaped pipe 支持
-- [x] 模板文档配置提取增强：提取页面大小/方向(WD_ORIENT)、页眉页脚距离、装订线
-- [x] 测试断言升级：验证 Word 原生结构（Heading 样式、outlineLvl、footnoteReference、numPr、tblGrid、tblHeader、footnotes.xml）
-- [x] TypeScript 类型同步：PythonStyleRules 新增 page_size、page_margin 扩展字段
-
-### 2026-05-12
-
-- [x] 明确 DOCX-first：从零生成和模板生成都产出最终 DOCX，Markdown 仅作预览/中间态
-- [x] DOCX 增强：写入文档元信息、页脚页码、有序列表编号
-- [x] 输出防覆盖：默认文件名升级为毫秒级时间戳 + 短唯一后缀
-- [x] 稳定性增强：Python 临时文件唯一化、失败清理、DOCX 先写临时文件再落成品
-- [x] 补充测试：覆盖安全文件名和时间戳输出名
-- [x] Obsidian 到 DOCX 增强：frontmatter 清理、内部链接降噪、任务列表、callout、文末注、图片引用、单元格超链接
-- [x] DOCX 结构质量增强：列表改用 Word 原生样式，新增生成后包结构校验与 Obsidian 语法回归测试
-- [x] 同步 README 与持续学习文档，移除旧架构误导
-
 ### 2026-02-02
 
 - [x] 简化流程：移除 VL 模型，只需 OCR + LLM
@@ -527,4 +498,4 @@ await controller.generateDocumentFromTemplate(template, topic, desc, {
 ---
 
 *本文档会随着项目演进持续更新*
-*最后更新: 2026-06-08 Word 原生脚注 + 中文多级编号 + 表格增强 + 页面配置提取*
+*最后更新: 2026-02-02 同步到 GitHub，使用 Python python-docx 替代 docx.js*

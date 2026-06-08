@@ -20,6 +20,11 @@ import {
 } from 'docx';
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  extractStylesFromDocx,
+  getDefaultStyleRules,
+  type PythonStyleRules,
+} from './python-docx';
 
 /**
  * 样式规则
@@ -560,97 +565,119 @@ export class DocumentSynthesizer {
  */
 export class StyleExtractor {
   /**
-   * 从 DOCX 文件提取样式规则（简化版）
-   * 实际应用中，应使用 OCR 模型或专门的文档解析库
+   * 从 DOCX 文件提取样式规则。
+   * DOCX 走 python-docx 真实解析；非 DOCX 模板使用中文正式文档默认样式。
    */
   static async extractFromDocx(docxPath: string): Promise<StyleRules> {
-    // 默认中文正式文档样式
+    const ext = path.extname(docxPath).toLowerCase();
+    const pythonRules = ext === '.docx'
+      ? await extractStylesFromDocx(docxPath)
+      : getDefaultStyleRules();
+
+    return this.fromPythonStyleRules(pythonRules);
+  }
+
+  private static fromPythonStyleRules(rules: PythonStyleRules): StyleRules {
+    const ptToTwips = (pt?: number) => Math.round((pt ?? 0) * 20);
+    const inchToTwips = (inch?: number) => Math.round((inch ?? 0) * 1440);
+    const paragraph = (key: keyof PythonStyleRules) => (rules[key] as any)?.paragraph || {};
+    const font = (key: keyof PythonStyleRules) => (rules[key] as any)?.font || {};
+
     return {
       title: {
-        fontFamily: '黑体',
-        fontSize: 22,
-        fontBold: true,
+        fontFamily: font('title').name || '黑体',
+        fontSize: font('title').size || 22,
+        fontBold: font('title').bold !== false,
         fontColor: '#000000',
-        alignment: 'center',
-        spaceBefore: 400,
-        spaceAfter: 300
+        alignment: paragraph('title').alignment || 'center',
+        lineSpacing: paragraph('title').line_spacing || 1.5,
+        spaceBefore: ptToTwips(paragraph('title').space_before ?? 12),
+        spaceAfter: ptToTwips(paragraph('title').space_after ?? 6)
       },
       heading1: {
-        fontFamily: '黑体',
-        fontSize: 16,
-        fontBold: true,
+        fontFamily: font('heading1').name || '黑体',
+        fontSize: font('heading1').size || 16,
+        fontBold: font('heading1').bold !== false,
         fontColor: '#333333',
-        alignment: 'left',
-        spaceBefore: 300,
-        spaceAfter: 150,
+        alignment: paragraph('heading1').alignment || 'left',
+        lineSpacing: paragraph('heading1').line_spacing || 1.5,
+        spaceBefore: ptToTwips(paragraph('heading1').space_before ?? 12),
+        spaceAfter: ptToTwips(paragraph('heading1').space_after ?? 6),
         indent: 0
       },
       heading2: {
-        fontFamily: '楷体',
-        fontSize: 14,
-        fontBold: true,
+        fontFamily: font('heading2').name || '楷体',
+        fontSize: font('heading2').size || 14,
+        fontBold: font('heading2').bold !== false,
         fontColor: '#444444',
-        alignment: 'left',
-        spaceBefore: 250,
-        spaceAfter: 100,
+        alignment: paragraph('heading2').alignment || 'left',
+        lineSpacing: paragraph('heading2').line_spacing || 1.5,
+        spaceBefore: ptToTwips(paragraph('heading2').space_before ?? 10),
+        spaceAfter: ptToTwips(paragraph('heading2').space_after ?? 4),
         indent: 0
       },
       heading3: {
-        fontFamily: '宋体',
-        fontSize: 12,
-        fontBold: true,
+        fontFamily: font('heading3').name || '宋体',
+        fontSize: font('heading3').size || 12,
+        fontBold: font('heading3').bold !== false,
         fontColor: '#555555',
-        alignment: 'left',
-        spaceBefore: 200,
-        spaceAfter: 80,
+        alignment: paragraph('heading3').alignment || 'left',
+        lineSpacing: paragraph('heading3').line_spacing || 1.5,
+        spaceBefore: ptToTwips(paragraph('heading3').space_before ?? 8),
+        spaceAfter: ptToTwips(paragraph('heading3').space_after ?? 4),
         indent: 0
       },
       body: {
-        fontFamily: '宋体',
-        fontSize: 12,
-        fontBold: false,
+        fontFamily: font('body').name || '宋体',
+        fontSize: font('body').size || 12,
+        fontBold: font('body').bold || false,
         fontColor: '#333333',
-        alignment: 'justify',
-        lineSpacing: 1.5,
-        spaceBefore: 0,
-        spaceAfter: 80,
-        indent: 240  // 首行缩进 2 字符
+        alignment: paragraph('body').alignment || 'justify',
+        lineSpacing: paragraph('body').line_spacing || 1.5,
+        spaceBefore: ptToTwips(paragraph('body').space_before ?? 0),
+        spaceAfter: ptToTwips(paragraph('body').space_after ?? 4),
+        indent: inchToTwips(paragraph('body').indent_first_line ?? 0.33)
       },
       list: {
-        fontFamily: '宋体',
-        fontSize: 12,
-        fontBold: false,
+        fontFamily: font('list').name || font('body').name || '宋体',
+        fontSize: font('list').size || font('body').size || 12,
+        fontBold: font('list').bold || false,
         fontColor: '#333333',
-        alignment: 'left',
-        spaceBefore: 60,
-        spaceAfter: 60
+        alignment: paragraph('list').alignment || 'left',
+        lineSpacing: paragraph('list').line_spacing || 1.5,
+        spaceBefore: ptToTwips(paragraph('list').space_before ?? 2),
+        spaceAfter: ptToTwips(paragraph('list').space_after ?? 2)
       },
       quote: {
-        fontFamily: '楷体',
-        fontSize: 12,
-        fontItalic: true,
+        fontFamily: font('quote').name || '楷体',
+        fontSize: font('quote').size || 12,
+        fontBold: font('quote').bold || false,
+        fontItalic: font('quote').italic !== false,
         fontColor: '#666666',
-        alignment: 'left',
-        indent: 720,
+        alignment: paragraph('quote').alignment || 'left',
+        lineSpacing: paragraph('quote').line_spacing || 1.5,
+        indent: inchToTwips(paragraph('quote').indent_left ?? 0.4),
         borderLeft: true,
         borderColor: 'CCCCCC',
         shadingColor: 'F5F5F5',
-        spaceBefore: 100,
-        spaceAfter: 100
+        spaceBefore: ptToTwips(paragraph('quote').space_before ?? 4),
+        spaceAfter: ptToTwips(paragraph('quote').space_after ?? 4)
       },
       code: {
-        fontFamily: 'Consolas',
-        fontSize: 11,
+        fontFamily: font('code').name || 'Consolas',
+        fontSize: font('code').size || 11,
         fontColor: '#333333',
-        indent: 720,
-        spaceBefore: 150,
-        spaceAfter: 150
+        alignment: paragraph('code').alignment || 'left',
+        lineSpacing: paragraph('code').line_spacing || 1.2,
+        indent: inchToTwips(paragraph('code').indent_left ?? 0.4),
+        spaceBefore: ptToTwips(paragraph('code').space_before ?? 6),
+        spaceAfter: ptToTwips(paragraph('code').space_after ?? 6)
       },
       pageMargin: {
-        top: 1440,
-        bottom: 1440,
-        left: 1440,
-        right: 1440
+        top: inchToTwips(rules.page_margin?.top ?? 1.0),
+        bottom: inchToTwips(rules.page_margin?.bottom ?? 1.0),
+        left: inchToTwips(rules.page_margin?.left ?? 1.25),
+        right: inchToTwips(rules.page_margin?.right ?? 1.25)
       },
       pageOrientation: 'portrait'
     };

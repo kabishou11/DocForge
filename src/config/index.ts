@@ -221,9 +221,24 @@ export class ConfigManager {
    * 更新模型配置（部分更新）
    */
   updateModelConfig(updates: Partial<ModelConfig>): void {
+    const cleanUpdates: Partial<ModelConfig> = {};
+
+    if (updates.format !== undefined) {
+      cleanUpdates.format = updates.format;
+    }
+    if (typeof updates.baseUrl === 'string' && updates.baseUrl.trim()) {
+      cleanUpdates.baseUrl = updates.baseUrl.trim();
+    }
+    if (typeof updates.model === 'string' && updates.model.trim()) {
+      cleanUpdates.model = updates.model.trim();
+    }
+    if (typeof updates.apiKey === 'string' && updates.apiKey.trim()) {
+      cleanUpdates.apiKey = updates.apiKey.trim();
+    }
+
     this.config.model = {
       ...this.config.model,
-      ...updates,
+      ...cleanUpdates,
     };
     this.save();
   }

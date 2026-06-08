@@ -9,7 +9,7 @@
 ![Python](https://img.shields.io/badge/Python-3.13-yellow?style=for-the-badge&logo=python)
 ![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
 
-*基于大语言模型的文档自动化生成工具，支持从零生成和模板风格迁移*
+*基于大语言模型的文档自动化生成工具，支持从零生成和模板风格迁移，最终交付 DOCX*
 
 [📖 快速开始](#-快速开始) • [✨ 功能特性](#-功能特性) • [💻 使用示例](#-使用示例) • [📁 项目结构](#-项目结构)
 
@@ -19,13 +19,14 @@
 
 ## 📋 简介
 
-DocForge 是一款创新的 AI 文档生成平台，利用大语言模型（LLM）自动生成专业、规范的文档内容。无论是建设方案、技术报告还是合规文档，只需提供主题和描述，即可快速生成高质量、可直接使用的文档。
+DocForge 是一款创新的 AI 文档生成平台，利用大语言模型（LLM）自动生成专业、规范的文档内容。无论是建设方案、技术报告还是合规文档，只需提供主题和描述，即可快速生成高质量、可直接使用的 DOCX 文档。Markdown 只作为开发预览和中间态。
 
 ### 🌟 核心亮点
 
 - **🤖 智能生成** - 基于 Qwen3/MiniMax 等强大模型，理解需求后自动生成结构化文档
 - **📋 模板风格迁移** - 参考现有文档风格，生成格式统一的新文档
 - **📄 DOCX 格式还原** - 使用 Python python-docx 生成格式规范的 DOCX，支持行内混合格式、嵌套列表等高级功能
+- **📝 Obsidian 友好** - Markdown 预览只是中间态，Obsidian 的内部链接、任务列表、callout、脚注、表格和图片引用会尽量转换为可交付的 DOCX 结构
 - **🖥️ 交互式 TUI** - 提供友好的终端用户界面，支持斜杠命令快速操作
 - **🔒 安全可控** - API Key 本地配置，不泄露敏感信息
 
@@ -39,7 +40,8 @@ DocForge 是一款创新的 AI 文档生成平台，利用大语言模型（LLM�
 | 模板风格迁移 | 参考现有 DOCX/Markdown 模板，生成格式统一的新文档 | ✅ 已完成 |
 | 交互式 TUI | 终端用户界面，支持斜杠命令 | ✅ 已完成 |
 | 模型配置 | 支持切换 LLM/OCR 模型，测试连接 | ✅ 已完成 |
-| 文档导出 | 支持导出为 Markdown 和 DOCX | ✅ 已完成 |
+| 文档导出 | 支持导出为 DOCX，Markdown 作为预览/中间态 | ✅ 已完成 |
+| Obsidian Markdown 适配 | 支持 frontmatter 清理、内部链接降噪、任务列表、callout、脚注、图片引用 | ✅ 已完成 |
 | 进度显示 | 实时显示 OCR 提取、LLM 生成、文档合成进度 | ✅ 已完成 |
 
 ---
@@ -117,6 +119,21 @@ node dist/cli.js tui
 5. 确认后生成完整文档
 ```
 
+### Obsidian / Markdown 直接转 DOCX
+
+```bash
+# 使用默认中文正式文档样式
+node dist/cli.js convert "D:\Vault\方案.md"
+
+# 使用已有 DOCX 模板提取样式，并解析同目录图片/附件
+node dist/cli.js convert "D:\Vault\方案.md" --template templates\正式模板.docx
+
+# 指定输出位置和附件目录
+node dist/cli.js convert "D:\Vault\方案.md" -o output\方案.docx --asset-root "D:\Vault"
+```
+
+转换时会清理 Obsidian frontmatter/内部链接噪声，并尽量把任务列表、callout、脚注、图片引用、表格和超链接转换为 Word 可编辑结构。
+
 ### 基于模板生成
 
 ```
@@ -124,6 +141,7 @@ node dist/cli.js tui
 2. 选择参考模板文件 (支持 .docx, .md, .txt)
 3. 输入新文档主题: "智慧工厂建设方案"
 4. 系统基于模板风格生成新文档
+5. 输出目录中同时得到 Markdown 预览和最终 DOCX
 ```
 
 ---

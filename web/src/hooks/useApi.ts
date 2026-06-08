@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 
-const API_BASE = 'http://localhost:3456/api'
+export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3456/api'
 
 export interface ProgressEvent {
   step: string
@@ -21,6 +21,20 @@ export interface GenerationResult {
   filePath: string
   docxPath?: string
   sectionCount: number
+  wordCount: number
+}
+
+export interface ConvertMarkdownParams {
+  fileName?: string
+  markdown: string
+  templateName?: string
+  assetRoot?: string
+}
+
+export interface ConvertMarkdownResult {
+  success: true
+  filePath?: string
+  docxPath: string
   wordCount: number
 }
 
@@ -544,6 +558,20 @@ export async function deleteHistory(name: string) {
 export async function previewHistory(name: string) {
   const res = await fetch(`${API_BASE}/history/${encodeURIComponent(name)}/preview`)
   return res.json()
+}
+
+export async function convertMarkdownToDocx(params: ConvertMarkdownParams): Promise<ConvertMarkdownResult> {
+  const res = await fetch(`${API_BASE}/convert/markdown`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+  const data = await res.json().catch(() => null)
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.message || data?.error || 'Markdown 转 DOCX 失败')
+  }
+  invalidateCache('history')
+  return data as ConvertMarkdownResult
 }
 
 // ========== Model Config API (新) ==========

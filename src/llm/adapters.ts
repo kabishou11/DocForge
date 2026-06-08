@@ -34,6 +34,29 @@ export interface ModelAdapter {
   getFormat(): ApiFormat;
 }
 
+function createAbortContext(timeoutMs: number, externalSignal?: AbortSignal): {
+  signal: AbortSignal;
+  cleanup: () => void;
+} {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const abortFromExternal = () => controller.abort();
+
+  if (externalSignal?.aborted) {
+    controller.abort();
+  } else {
+    externalSignal?.addEventListener('abort', abortFromExternal, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      externalSignal?.removeEventListener('abort', abortFromExternal);
+    },
+  };
+}
+
 // ==================== 通用类型 ====================
 
 interface AnthropicMessage {
@@ -109,7 +132,7 @@ export class OpenAIAdapter extends EventEmitter implements ModelAdapter {
         'Authorization': `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(body),
-    });
+    }, options.signal);
 
     if (!response.ok) {
       const error = await response.text();
@@ -134,47 +157,53 @@ export class OpenAIAdapter extends EventEmitter implements ModelAdapter {
       body.extra_body = { enable_thinking: options.enableThinking };
     }
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
+    const abortContext = createAbortContext(this.timeout, options.signal);
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: abortContext.signal,
+      });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`API Error ${response.status}: ${error}`);
-    }
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`API Error ${response.status}: ${error}`);
+      }
 
-    if (!response.body) {
-      throw new Error('Response body is null');
-    }
+      if (!response.body) {
+        throw new Error('Response body is null');
+      }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6).trim();
-          if (data === '[DONE]') return;
-          try {
-            yield JSON.parse(data) as StreamChunk;
-          } catch {
-            // ignore parse error
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') return;
+            try {
+              yield JSON.parse(data) as StreamChunk;
+            } catch {
+              // ignore parse error
+            }
           }
         }
       }
+    } finally {
+      abortContext.cleanup();
     }
   }
 
@@ -200,14 +229,12 @@ export class OpenAIAdapter extends EventEmitter implements ModelAdapter {
     return messages;
   }
 
-  protected async fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeout);
-
+  protected async fetchWithTimeout(url: string, options: RequestInit, signal?: AbortSignal): Promise<Response> {
+    const abortContext = createAbortContext(this.timeout, signal);
     try {
-      return await fetch(url, { ...options, signal: controller.signal });
+      return await fetch(url, { ...options, signal: abortContext.signal });
     } finally {
-      clearTimeout(timeout);
+      abortContext.cleanup();
     }
   }
 }
@@ -277,7 +304,7 @@ export class AnthropicAdapter extends EventEmitter implements ModelAdapter {
         'anthropic-version': this.apiVersion,
       },
       body: JSON.stringify(body),
-    });
+    }, options.signal);
 
     if (!response.ok) {
       const error = await response.text();
@@ -321,82 +348,88 @@ export class AnthropicAdapter extends EventEmitter implements ModelAdapter {
     if (system) body.system = system;
     if (options.temperature !== undefined) body.temperature = options.temperature;
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.apiKey,
-        'anthropic-version': this.apiVersion,
-      },
-      body: JSON.stringify(body),
-    });
+    const abortContext = createAbortContext(this.timeout, options.signal);
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.apiKey,
+          'anthropic-version': this.apiVersion,
+        },
+        body: JSON.stringify(body),
+        signal: abortContext.signal,
+      });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Anthropic API Error ${response.status}: ${error}`);
-    }
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Anthropic API Error ${response.status}: ${error}`);
+      }
 
-    if (!response.body) {
-      throw new Error('Response body is null');
-    }
+      if (!response.body) {
+        throw new Error('Response body is null');
+      }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          continue;
-        }
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6).trim();
-          if (!data) continue;
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            continue;
+          }
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (!data) continue;
 
-          try {
-            const event = JSON.parse(data) as AnthropicStreamEvent;
+            try {
+              const event = JSON.parse(data) as AnthropicStreamEvent;
 
-            if (event.type === 'content_block_delta' && event.delta) {
-              yield {
-                id: 'anthropic-stream',
-                object: 'chat.completion.chunk',
-                created: Math.floor(Date.now() / 1000),
-                model: this.defaultModel,
-                choices: [{
-                  index: event.index || 0,
-                  delta: {
-                    role: 'assistant',
-                    content: event.delta.text || '',
-                    thinking: event.delta.thinking || undefined,
-                  },
-                  finish_reason: undefined,
-                }],
-              };
-            } else if (event.type === 'message_delta' && event.delta?.stop_reason) {
-              yield {
-                id: 'anthropic-stream',
-                object: 'chat.completion.chunk',
-                created: Math.floor(Date.now() / 1000),
-                model: this.defaultModel,
-                choices: [{
-                  index: 0,
-                  delta: {},
-                  finish_reason: event.delta.stop_reason,
-                }],
-              };
+              if (event.type === 'content_block_delta' && event.delta) {
+                yield {
+                  id: 'anthropic-stream',
+                  object: 'chat.completion.chunk',
+                  created: Math.floor(Date.now() / 1000),
+                  model: this.defaultModel,
+                  choices: [{
+                    index: event.index || 0,
+                    delta: {
+                      role: 'assistant',
+                      content: event.delta.text || '',
+                      thinking: event.delta.thinking || undefined,
+                    },
+                    finish_reason: undefined,
+                  }],
+                };
+              } else if (event.type === 'message_delta' && event.delta?.stop_reason) {
+                yield {
+                  id: 'anthropic-stream',
+                  object: 'chat.completion.chunk',
+                  created: Math.floor(Date.now() / 1000),
+                  model: this.defaultModel,
+                  choices: [{
+                    index: 0,
+                    delta: {},
+                    finish_reason: event.delta.stop_reason,
+                  }],
+                };
+              }
+            } catch {
+              // ignore parse error
             }
-          } catch {
-            // ignore parse error
           }
         }
       }
+    } finally {
+      abortContext.cleanup();
     }
   }
 
@@ -418,14 +451,12 @@ export class AnthropicAdapter extends EventEmitter implements ModelAdapter {
     }
   }
 
-  private async fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeout);
-
+  private async fetchWithTimeout(url: string, options: RequestInit, signal?: AbortSignal): Promise<Response> {
+    const abortContext = createAbortContext(this.timeout, signal);
     try {
-      return await fetch(url, { ...options, signal: controller.signal });
+      return await fetch(url, { ...options, signal: abortContext.signal });
     } finally {
-      clearTimeout(timeout);
+      abortContext.cleanup();
     }
   }
 }

@@ -3,8 +3,40 @@
  * 调用内置 MCP 服务器的 web_search 工具获取最新信息
  */
 
+import { isAbortError } from '../utils/abort';
+
 const MCP_PORT = process.env.MCP_PORT || 19842;
 const MCP_BASE = `http://localhost:${MCP_PORT}`;
+
+function createSearchSignal(signal?: AbortSignal): {
+  signal: AbortSignal;
+  cleanup: () => void;
+  wasExternallyAborted: () => boolean;
+} {
+  const controller = new AbortController();
+  let externallyAborted = false;
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  const abortFromExternal = () => {
+    externallyAborted = true;
+    controller.abort();
+  };
+
+  if (signal?.aborted) {
+    externallyAborted = true;
+    controller.abort();
+  } else {
+    signal?.addEventListener('abort', abortFromExternal, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abortFromExternal);
+    },
+    wasExternallyAborted: () => externallyAborted,
+  };
+}
 
 export interface SearchResult {
   title: string;
@@ -16,13 +48,14 @@ export interface SearchResult {
 /**
  * 搜索网络信息
  */
-export async function searchWeb(query: string, maxResults: number = 3): Promise<SearchResult[]> {
+export async function searchWeb(query: string, maxResults: number = 3, signal?: AbortSignal): Promise<SearchResult[]> {
+  const abortContext = createSearchSignal(signal);
   try {
     const response = await fetch(`${MCP_BASE}/tools/web_search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, maxResults }),
-      signal: AbortSignal.timeout(15000)
+      signal: abortContext.signal,
     });
 
     if (!response.ok) return [];
@@ -41,8 +74,13 @@ export async function searchWeb(query: string, maxResults: number = 3): Promise<
     } catch {
       return [{ title: query, url: '', snippet: text.slice(0, 500), source: 'raw' }];
     }
-  } catch {
+  } catch (error) {
+    if (isAbortError(error) && abortContext.wasExternallyAborted()) {
+      throw error;
+    }
     return [];
+  } finally {
+    abortContext.cleanup();
   }
 }
 

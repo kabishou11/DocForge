@@ -256,7 +256,10 @@ async function runNewDocumentFlow(controller: TuiController): Promise<void> {
 
   // 5. 显示结果
   console.log("\n\x1b[32m✅ 文档生成完成!\x1b[0m");
-  console.log(`📁 文件: ${result.filePath}`);
+  if (result.docxPath) {
+    console.log(`📄 DOCX: ${result.docxPath}`);
+  }
+  console.log(`📝 Markdown: ${result.filePath}`);
   console.log(`📊 章节数: ${result.sectionCount}`);
   console.log(`📝 字数: ${result.wordCount}`);
 

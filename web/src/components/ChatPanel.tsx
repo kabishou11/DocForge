@@ -8,7 +8,16 @@ import {
   Eye, EyeOff, Wifi, RefreshCw, BarChart3, Hash,
   MessageSquare, Upload
 } from 'lucide-react'
-import { useApi, fetchTemplates, uploadTemplate, type GenerateParams, type ParsedSection } from '../hooks/useApi'
+import {
+  useApi,
+  fetchTemplates,
+  uploadTemplate,
+  convertMarkdownToDocx,
+  type ConvertMarkdownResult,
+  type GenerateParams,
+  type ParsedSection,
+  API_BASE,
+} from '../hooks/useApi'
 
 interface Template {
   name: string
@@ -23,6 +32,11 @@ export function ChatPanel() {
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [markdownFileName, setMarkdownFileName] = useState('')
+  const [markdownInput, setMarkdownInput] = useState('')
+  const [isConvertingMarkdown, setIsConvertingMarkdown] = useState(false)
+  const [convertResult, setConvertResult] = useState<ConvertMarkdownResult | null>(null)
+  const [convertError, setConvertError] = useState<string | null>(null)
 
   // Generation params
   const [topic, setTopic] = useState('')
@@ -123,6 +137,29 @@ export function ChatPanel() {
     generate(params)
   }
 
+  const handleConvertMarkdown = async () => {
+    const markdown = markdownInput.trim()
+    if (!markdown) {
+      setConvertError('请先粘贴 Markdown 内容')
+      return
+    }
+    setIsConvertingMarkdown(true)
+    setConvertError(null)
+    setConvertResult(null)
+    try {
+      const data = await convertMarkdownToDocx({
+        fileName: markdownFileName.trim() || undefined,
+        markdown,
+        templateName: selectedTemplate?.name,
+      })
+      setConvertResult(data)
+    } catch (err: any) {
+      setConvertError(err.message || 'Markdown 转 DOCX 失败')
+    } finally {
+      setIsConvertingMarkdown(false)
+    }
+  }
+
   const handleModify = () => {
     if (!modifyRequest.trim()) return
     modify({
@@ -149,7 +186,7 @@ export function ChatPanel() {
 
   const handleDownload = (path?: string) => {
     if (!path) return
-    window.open(`http://localhost:3456/api/download?path=${encodeURIComponent(path)}`, '_blank')
+    window.open(`${API_BASE}/download?path=${encodeURIComponent(path)}`, '_blank')
   }
 
   const getStepIcon = (_step: string, status?: string) => {
@@ -206,6 +243,91 @@ export function ChatPanel() {
     year: 'numeric', month: 'long', day: 'numeric'
   })
 
+  const renderMarkdownConvertCard = (compact = false) => (
+    <div className={`card text-left animate-slide-up ${compact ? 'p-3' : 'p-4 mb-6'}`}>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex items-start gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center shrink-0">
+            <FileText size={15} className="text-green-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-text-primary">Markdown 直接转 DOCX</h3>
+            <p className="text-xs text-text-tertiary mt-0.5">
+              粘贴 Obsidian/Markdown 内容，直接生成可交付 Word 文档
+            </p>
+          </div>
+        </div>
+        {selectedTemplate && (
+          <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700">
+            套用 {selectedTemplate.name}
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-2">
+        <input
+          type="text"
+          value={markdownFileName}
+          onChange={e => setMarkdownFileName(e.target.value)}
+          placeholder="可选文件名，例如：项目汇报.docx"
+          disabled={isConvertingMarkdown}
+          className="text-xs !py-2"
+        />
+        <textarea
+          value={markdownInput}
+          onChange={e => setMarkdownInput(e.target.value)}
+          placeholder="# 标题&#10;&#10;在这里粘贴 Markdown 内容..."
+          disabled={isConvertingMarkdown}
+          rows={compact ? 4 : 6}
+          className="text-xs leading-relaxed resize-none"
+        />
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span className="text-[11px] text-text-muted">
+          {markdownInput.trim().length > 0 ? `${markdownInput.trim().length} 字符` : '无需先生成 Markdown 文件'}
+        </span>
+        <button
+          onClick={handleConvertMarkdown}
+          disabled={isConvertingMarkdown || !markdownInput.trim()}
+          className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all ${
+            markdownInput.trim() && !isConvertingMarkdown
+              ? 'bg-accent text-white hover:bg-accent-hover shadow-sm'
+              : 'bg-bg-tertiary text-text-muted cursor-not-allowed'
+          }`}
+        >
+          {isConvertingMarkdown ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+          转为 DOCX
+        </button>
+      </div>
+
+      {convertResult && (
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <CheckCircle2 size={14} className="text-success shrink-0" />
+            <span className="truncate text-xs text-green-700">
+              转换完成，约 {convertResult.wordCount} 字
+            </span>
+          </div>
+          <button
+            onClick={() => handleDownload(convertResult.docxPath)}
+            className="btn-primary flex items-center gap-1.5 text-xs !py-1.5 !px-3 shrink-0"
+          >
+            <Download size={12} />
+            下载
+          </button>
+        </div>
+      )}
+
+      {convertError && (
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
+          <AlertCircle size={14} className="text-error shrink-0 mt-0.5" />
+          <p className="text-xs text-red-700">{convertError}</p>
+        </div>
+      )}
+    </div>
+  )
+
   // ==================== RENDER ====================
 
   // Show empty state: template picker (hero screen)
@@ -220,6 +342,8 @@ export function ChatPanel() {
           <p className="text-base text-text-tertiary mb-8">
             选择模板，输入主题，一键生成可呈报的专业文档
           </p>
+
+          {renderMarkdownConvertCard()}
 
           {/* Template cards */}
           {templates.length > 0 ? (
@@ -412,6 +536,10 @@ export function ChatPanel() {
                   </div>
                 </div>
               )}
+            </div>
+
+            <div className="mt-4">
+              {renderMarkdownConvertCard(true)}
             </div>
           </div>
         </div>

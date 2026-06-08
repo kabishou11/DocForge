@@ -22,6 +22,8 @@ import { LLMClient, createLLMClient } from './llm/client';
 import { ModelScopeService } from './services/modelscope';
 import { ConfigManager } from './config';
 import { startTui } from './tui';
+import { extractStylesFromDocx, generateDocxWithPython, getDefaultStyleRules, type PythonStyleRules } from './services/python-docx';
+import { buildTimestampedDocumentStem } from './utils/path-safety';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -80,6 +82,18 @@ export async function main(): Promise<void> {
       await cmdGenerate(options);
     });
 
+  // convert 命令：把 Obsidian/Markdown 直接转成 DOCX
+  program
+    .command('convert <input>')
+    .description('将 Obsidian/Markdown 文档转换为可交付 DOCX')
+    .option('-o, --output <path>', '输出 DOCX 路径')
+    .option('--template <docx>', '参考 DOCX 模板样式')
+    .option('--style <json>', '使用已提取的样式 JSON')
+    .option('--asset-root <dir>', '图片/附件根目录，默认使用 Markdown 所在目录')
+    .action(async (input, options) => {
+      await cmdConvert(input, options);
+    });
+
   // preview 命令
   program
     .command('preview')
@@ -90,14 +104,13 @@ export async function main(): Promise<void> {
       await cmdPreview(options);
     });
 
-  // sync 命令
+  // sync 命令（暂未实现）
   program
     .command('sync')
-    .description('同步到 GitHub')
-    .option('--branch <branch>', '目标分支')
-    .option('--message <msg>', '提交信息')
-    .action(async (options) => {
-      await cmdSync(options);
+    .description('同步到 GitHub（暂未实现）')
+    .action(async () => {
+      console.error('❌ sync 命令暂未实现，请使用 git 命令手动同步。');
+      process.exit(1);
     });
 
   // status 命令
@@ -267,6 +280,73 @@ async function cmdGenerate(options: {
 }
 
 /**
+ * convert 命令实现：Obsidian/Markdown -> DOCX
+ */
+async function cmdConvert(input: string, options: {
+  output?: string;
+  template?: string;
+  style?: string;
+  assetRoot?: string;
+}): Promise<void> {
+  const inputPath = path.resolve(input);
+  if (!fs.existsSync(inputPath)) {
+    console.error(`❌ 文件不存在: ${inputPath}`);
+    process.exit(1);
+  }
+
+  const ext = path.extname(inputPath).toLowerCase();
+  if (!['.md', '.markdown', '.txt'].includes(ext)) {
+    console.error('❌ convert 目前支持 .md/.markdown/.txt 输入');
+    process.exit(1);
+  }
+
+  let styleRules: PythonStyleRules = getDefaultStyleRules();
+  if (options.template) {
+    const templatePath = path.resolve(options.template);
+    if (!fs.existsSync(templatePath)) {
+      console.error(`❌ 模板不存在: ${templatePath}`);
+      process.exit(1);
+    }
+    styleRules = await extractStylesFromDocx(templatePath);
+  } else if (options.style) {
+    const stylePath = path.resolve(options.style);
+    if (!fs.existsSync(stylePath)) {
+      console.error(`❌ 样式文件不存在: ${stylePath}`);
+      process.exit(1);
+    }
+    styleRules = JSON.parse(fs.readFileSync(stylePath, 'utf-8')) as PythonStyleRules;
+  }
+
+  const outputPath = options.output
+    ? path.resolve(options.output)
+    : path.resolve(
+        './output',
+        `${buildTimestampedDocumentStem(path.basename(inputPath, ext), 'converted')}.docx`
+      );
+
+  const markdown = fs.readFileSync(inputPath, 'utf-8');
+  const assetRoot = options.assetRoot
+    ? path.resolve(options.assetRoot)
+    : path.dirname(inputPath);
+
+  try {
+    await generateDocxWithPython({
+      markdown,
+      outputPath,
+      styleRules,
+      assetRoot,
+    });
+  } catch (error) {
+    console.error('❌ DOCX 转换失败:', error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+
+  console.log('✅ DOCX 转换完成');
+  console.log(`📄 输入: ${inputPath}`);
+  console.log(`📁 输出: ${outputPath}`);
+}
+
+/**
  * preview 命令实现
  */
 async function cmdPreview(options: {
@@ -282,7 +362,14 @@ async function cmdPreview(options: {
   const description = options.description || '无';
 
   const llmClient = createLLMClient();
-  const outline = await llmClient.generateOutline(topic, description);
+
+  let outline;
+  try {
+    outline = await llmClient.generateOutline(topic, description);
+  } catch (error) {
+    console.error('❌ 大纲生成失败:', error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 
   console.log('文档大纲:');
   console.log(`主题: ${topic}`);
@@ -547,6 +634,7 @@ export {
   cmdInit,
   cmdStyle,
   cmdGenerate,
+  cmdConvert,
   cmdPreview,
   cmdSync,
   cmdStatus,
@@ -555,4 +643,7 @@ export {
 };
 
 // 运行主函数
-main().catch(console.error);
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
