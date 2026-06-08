@@ -34,15 +34,19 @@ try {
 const app = express();
 const PORT = parseInt(process.env.PORT || '3456', 10);
 
-// CORS: 生产环境限制来源域名
+// CORS: 生产环境阻断未授权来源，开发环境仅记录
+const isProduction = process.env.NODE_ENV === 'production';
 const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173').split(',').map(s => s.trim());
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
+    } else if (isProduction) {
+      console.warn(`[CORS] 拒绝未授权来源: ${origin}`);
+      callback(new Error('CORS not allowed'), false);
     } else {
-      console.warn(`[CORS] 未授权来源: ${origin}，允许的域名: ${allowedOrigins.join(', ')}`);
-      callback(null, true); // 开发阶段不阻断，仅记录
+      console.warn(`[CORS] 未授权来源(开发模式放行): ${origin}`);
+      callback(null, true);
     }
   },
   credentials: true,
@@ -164,18 +168,26 @@ app.get('/api/models', async (_req, res) => {
     const models = controller.getAllModels();
     res.json(models);
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    res.status(500).json({ success: false, message: String(error) });
   }
 });
 
 app.post('/api/models/llm', (req, res) => {
   const { modelId } = req.body;
+  if (!modelId) {
+    res.status(400).json({ success: false, message: '缺少 modelId 参数' });
+    return;
+  }
   const result = controller.setLLM(modelId);
   res.json({ success: result });
 });
 
 app.post('/api/models/ocr', (req, res) => {
   const { modelId } = req.body;
+  if (!modelId) {
+    res.status(400).json({ success: false, message: '缺少 modelId 参数' });
+    return;
+  }
   const result = controller.setOCR(modelId);
   res.json({ success: result });
 });
@@ -198,7 +210,7 @@ app.get('/api/templates', (_req, res) => {
       }));
     res.json(files);
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    res.status(500).json({ success: false, message: String(error) });
   }
 });
 
@@ -260,10 +272,14 @@ app.get('/api/history', (_req, res) => {
 // Track active generations for cancellation
 let activeGeneration: { aborted: boolean; abortController: AbortController } | null = null;
 
-// ========== Generate (SSE Streaming) ==========
-app.post('/api/generate/stream', (req, res) => {
-  const { type, topic, description, templatePath, wordCount, enableSearch } = req.body;
+// SSE 辅助：创建 genToken + 设置 headers + keepalive + cleanup
+interface SseContext {
+  genToken: { aborted: boolean; abortController: AbortController };
+  sendEvent: (data: any) => void;
+  progressHandler: (progress: any) => void;
+}
 
+function setupSse(res: express.Response): SseContext {
   // Abort any existing generation
   if (activeGeneration) {
     activeGeneration.aborted = true;
@@ -294,6 +310,30 @@ app.post('/api/generate/stream', (req, res) => {
   const progressHandler = (progress: any) => {
     sendEvent({ type: 'progress', data: progress });
   };
+
+  // Handle client disconnect
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      genToken.aborted = true;
+      genToken.abortController.abort();
+    }
+    clearInterval(keepalive);
+  });
+
+  return { genToken, sendEvent, progressHandler };
+}
+
+function finalizeSse(genToken: { aborted: boolean; abortController: AbortController }, keepaliveRef?: NodeJS.Timeout): void {
+  if (keepaliveRef) clearInterval(keepaliveRef);
+  if (activeGeneration === genToken) {
+    activeGeneration = null;
+  }
+}
+
+// ========== Generate (SSE Streaming) ==========
+app.post('/api/generate/stream', (req, res) => {
+  const { type, topic, description, templatePath, wordCount, enableSearch } = req.body;
+  const { genToken, sendEvent, progressHandler } = setupSse(res);
 
   const runGeneration = async () => {
     try {
@@ -347,10 +387,7 @@ app.post('/api/generate/stream', (req, res) => {
         sendEvent({ type: 'error', data: { message: error instanceof Error ? error.message : String(error) } });
       }
     } finally {
-      clearInterval(keepalive);
-      if (activeGeneration === genToken) {
-        activeGeneration = null;
-      }
+      finalizeSse(genToken);
       res.end();
     }
   };
@@ -361,15 +398,6 @@ app.post('/api/generate/stream', (req, res) => {
       res.end();
     }
   });
-
-  // Handle client disconnect
-  res.on('close', () => {
-    if (!res.writableEnded) {
-      genToken.aborted = true;
-      genToken.abortController.abort();
-    }
-    clearInterval(keepalive);
-  });
 });
 
 // ========== Conversational Modify (SSE Streaming) ==========
@@ -377,39 +405,11 @@ app.post('/api/generate/modify', (req, res) => {
   const { topic, templatePath, currentContent, modifyRequest, wordCount, enableSearch } = req.body;
 
   if (!modifyRequest || !currentContent) {
-    res.status(400).json({ error: '缺少修改要求或当前内容' });
+    res.status(400).json({ success: false, message: '缺少修改要求或当前内容' });
     return;
   }
 
-  // Abort any existing generation
-  if (activeGeneration) {
-    activeGeneration.aborted = true;
-    activeGeneration.abortController.abort();
-  }
-  const genToken = { aborted: false, abortController: new AbortController() };
-  activeGeneration = genToken;
-
-  // Set SSE headers
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-
-  const keepalive = setInterval(() => {
-    if (!genToken.aborted) {
-      res.write(': keepalive\n\n');
-    }
-  }, 15000);
-
-  const sendEvent = (data: any) => {
-    if (!genToken.aborted) {
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
-    }
-  };
-
-  const progressHandler = (progress: any) => {
-    sendEvent({ type: 'progress', data: progress });
-  };
+  const { genToken, sendEvent, progressHandler } = setupSse(res);
 
   const runModification = async () => {
     try {
@@ -444,10 +444,7 @@ app.post('/api/generate/modify', (req, res) => {
         sendEvent({ type: 'error', data: { message: error instanceof Error ? error.message : String(error) } });
       }
     } finally {
-      clearInterval(keepalive);
-      if (activeGeneration === genToken) {
-        activeGeneration = null;
-      }
+      finalizeSse(genToken);
       res.end();
     }
   };
@@ -457,14 +454,6 @@ app.post('/api/generate/modify', (req, res) => {
     if (!res.writableEnded) {
       res.end();
     }
-  });
-
-  res.on('close', () => {
-    if (!res.writableEnded) {
-      genToken.aborted = true;
-      genToken.abortController.abort();
-    }
-    clearInterval(keepalive);
   });
 });
 
@@ -551,7 +540,7 @@ app.get('/api/templates/:name/preview', async (req, res) => {
       allowedExtensions: TEMPLATE_EXTENSIONS,
     });
     if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: '模板不存在' });
+      res.status(404).json({ success: false, message: '模板不存在' });
       return;
     }
     const ext = path.extname(templateName).toLowerCase();
@@ -580,7 +569,7 @@ app.get('/api/templates/:name/preview', async (req, res) => {
       res.json({ content: '不支持预览此文件类型', type: 'unknown' });
     }
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    res.status(500).json({ success: false, message: String(error) });
   }
 });
 
@@ -643,7 +632,7 @@ app.get('/api/history/:name/preview', async (req, res) => {
       allowedExtensions: OUTPUT_EXTENSIONS,
     });
     if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: '文件不存在' });
+      res.status(404).json({ success: false, message: '文件不存在' });
       return;
     }
     const ext = path.extname(fileName).toLowerCase();
@@ -697,7 +686,7 @@ app.delete('/api/history/:name', (req, res) => {
 app.get('/api/download', (req, res) => {
   const rawPath = req.query.path as string;
   if (!rawPath) {
-    res.status(400).json({ error: '缺少文件路径' });
+    res.status(400).json({ success: false, message: '缺少文件路径' });
     return;
   }
   let resolved: string;
@@ -706,11 +695,11 @@ app.get('/api/download', (req, res) => {
     resolved = resolveExistingFileInRoots(rawPath, [outputDir, templatesDir]);
     ensureAllowedExtension(resolved, DOWNLOAD_EXTENSIONS);
   } catch {
-    res.status(403).json({ error: '非法文件路径' });
+    res.status(403).json({ success: false, message: '非法文件路径' });
     return;
   }
   if (!fs.existsSync(resolved)) {
-    res.status(404).json({ error: '文件不存在' });
+    res.status(404).json({ success: false, message: '文件不存在' });
     return;
   }
   res.download(resolved);

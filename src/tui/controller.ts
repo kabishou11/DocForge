@@ -247,8 +247,7 @@ export class TuiController extends EventEmitter {
   Ctrl+C       退出`;
 
       case "exit":
-        process.exit(0);
-        return null;
+        return "__EXIT__";
 
       default:
         return `未知命令: ${command}`;
@@ -561,9 +560,11 @@ export class TuiController extends EventEmitter {
       const stylePrompt = this.buildStylePrompt(styleRules);
       const allSections: string[] = [];
       let totalWords = 0;
+      let recentContext = ''; // 滑动窗口：保留最近上下文，避免 O(n²) join
 
       // 生成文档标题
       allSections.push(`# ${topic}\n`);
+      recentContext = `# ${topic}\n`;
 
       for (let i = 0; i < sections.length; i++) {
         const section = sections[i];
@@ -598,11 +599,10 @@ export class TuiController extends EventEmitter {
           targetWords
         });
 
-        // 前文摘要（取最后 500 字作为上下文）
-        const prevText = allSections.join('\n');
-        const previousContext = prevText.length > 500
-          ? prevText.slice(-500)
-          : prevText;
+        // 前文摘要（取最后 500 字作为上下文，滑动窗口避免 O(n²) join）
+        const previousContext = recentContext.length > 500
+          ? recentContext.slice(-500)
+          : recentContext;
 
         const sectionContent = await this.llmClient.streamSectionContent(
           {
@@ -629,6 +629,8 @@ export class TuiController extends EventEmitter {
         );
 
         allSections.push(sectionContent);
+        // 滑动窗口：保留最近 600 字（取 500 字上下文 + 余量）
+        recentContext = (recentContext + '\n' + sectionContent).slice(-600);
 
         report('section_generate', 'completed', {
           sectionIndex: i,
