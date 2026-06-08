@@ -12,7 +12,6 @@ import * as fs from "fs";
 import * as path from "path";
 import * as mammoth from "mammoth";
 import {
-  extractStylesFromDocx,
   generateDocxWithPython,
   getDefaultStyleRules,
   PythonStyleRules
@@ -536,6 +535,7 @@ export class TuiController extends EventEmitter {
         const textResult = await mammoth.extractRawText({ buffer });
         templateContent = textResult.value;
       } else {
+        // extractFromDocx 对非 DOCX 文件会自动返回默认样式规则
         styleRules = await StyleExtractor.extractFromDocx(templatePath);
         templateContent = fs.readFileSync(templatePath, "utf-8");
       }

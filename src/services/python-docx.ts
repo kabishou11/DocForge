@@ -35,7 +35,7 @@ function resolvePythonCommand(): { command: string; args: string[] } {
 
   // 系统回退
   if (process.platform === 'win32') {
-    return { command: 'py', args: ['-3.13'] };
+    return { command: 'py', args: [] };
   }
   return { command: process.env.PYTHON || 'python3', args: [] };
 }
@@ -58,8 +58,6 @@ function replaceFileSafely(tempOutput: string, outputPath: string): void {
   // 使用 copyFileSync + unlinkSync 替代 renameSync，避免 Windows 文件锁问题
   try {
     fs.copyFileSync(tempOutput, outputPath);
-  } catch (error) {
-    throw error;
   } finally {
     // 始终清理临时文件
     try {

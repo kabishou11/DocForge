@@ -487,6 +487,7 @@ app.post('/api/convert/markdown', async (req, res) => {
       fileName,
       markdown,
       templateName,
+      assetRoot,
     }: {
       fileName?: string;
       markdown?: string;
@@ -528,7 +529,7 @@ app.post('/api/convert/markdown', async (req, res) => {
       markdown,
       outputPath: docxPath,
       styleRules,
-      assetRoot: templatesDir,
+      assetRoot: assetRoot || templatesDir,
     });
 
     res.json({
