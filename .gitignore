@@ -32,6 +32,9 @@ DOCFORGE_PLAN.md
 DOCFORGE_PROMPTS.md
 prompts/*.md
 
+# AI conversation records (local only)
+codex对话记录/
+
 # API Key files (never commit real keys)
 *.key
 apikey.txt
@@ -45,9 +48,22 @@ output/
 models/
 
 # Claude settings (personal)
-.claude/settings.local.json
+.claude/
+CLAUDE.md
+
+# Playwright MCP (test artifacts)
+.playwright-mcp/
 
 # Local config
 .docforge/
 style.json
 nul
+
+# Codex / AI agent files
+AGENTS.md
+docforge.cmd
+frontend-v1.png
+claude.md
+
+# Local app config
+.docforgerc
