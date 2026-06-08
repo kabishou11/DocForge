@@ -12,6 +12,7 @@
     "postinstall": "npm run build",
     "watch": "tsc --watch",
     "start": "node bin/docforge.js",
+    "start:prod": "node dist/api/server.js",
     "tui": "node bin/docforge.js",
     "dev": "ts-node src/cli.ts",
     "cli": "ts-node src/cli.ts",

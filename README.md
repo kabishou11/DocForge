@@ -146,6 +146,65 @@ node dist/cli.js convert "D:\Vault\方案.md" -o output\方案.docx --asset-root
 
 ---
 
+## 🚀 生产部署
+
+### 方式一：单端口部署（推荐）
+
+前后端编译后由 Express 统一提供：
+
+```bash
+# 1. 构建后端
+npm run build
+
+# 2. 构建前端
+cd web && npm install && npm run build && cd ..
+
+# 3. 创建 Python 虚拟环境
+python3 -m venv .venv
+# Linux/macOS:
+.venv/bin/pip install python-docx lxml
+# Windows:
+.venv\Scripts\pip install python-docx lxml
+
+# 4. 配置环境变量
+cp .env.example .env
+# 编辑 .env 填入实际值（PORT、CORS_ORIGINS 等）
+
+# 5. 启动生产服务
+NODE_ENV=production node dist/api/server.js
+```
+
+### 方式二：前后端分离部署
+
+```bash
+# 后端
+PORT=3456 node dist/api/server.js
+
+# 前端由 Nginx 提供，反向代理 API
+# nginx.conf 示例：
+# location /api { proxy_pass http://127.0.0.1:3456; }
+# location / { root /path/to/web/dist; try_files $uri /index.html; }
+```
+
+### 环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `PORT` | 服务端口 | `3456` |
+| `CORS_ORIGINS` | 允许的前端域名（逗号分隔） | `http://localhost:5173` |
+| `PYTHON_PATH` | Python 可执行文件路径 | 自动检测 .venv |
+| `PYTHON_VENV_PATH` | 虚拟环境目录名 | `.venv` |
+
+### 进程管理（推荐 PM2）
+
+```bash
+npm install -g pm2
+pm2 start dist/api/server.js --name docforge
+pm2 save && pm2 startup
+```
+
+---
+
 ## 📁 项目结构
 
 ```

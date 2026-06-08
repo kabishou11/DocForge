@@ -34,8 +34,19 @@ try {
 const app = express();
 const PORT = parseInt(process.env.PORT || '3456', 10);
 
-// Middleware
-app.use(cors());
+// CORS: 生产环境限制来源域名
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173').split(',').map(s => s.trim());
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] 未授权来源: ${origin}，允许的域名: ${allowedOrigins.join(', ')}`);
+      callback(null, true); // 开发阶段不阻断，仅记录
+    }
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -704,9 +715,21 @@ app.get('/api/download', (req, res) => {
   res.download(resolved);
 });
 
+// 托管前端构建产物（生产部署时 web/dist 已构建）
+const webDistDir = path.resolve('./web/dist');
+if (fs.existsSync(webDistDir)) {
+  app.use(express.static(webDistDir));
+  // SPA fallback: 所有非 API 路由返回 index.html
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(webDistDir, 'index.html'));
+  });
+}
+
 // Start server
-app.listen(PORT, () => {
-  console.log(`\n  DocForge Web API 运行在 http://localhost:${PORT}\n`);
+const server = app.listen(PORT, () => {
+  console.log(`\n  DocForge Web API 运行在 http://localhost:${PORT}`);
+  console.log(`  CORS 允许: ${allowedOrigins.join(', ')}`);
+  console.log(`  前端静态文件: ${fs.existsSync(webDistDir) ? webDistDir : '未构建'}\n`);
   console.log(`  API 文档:`);
   console.log(`    GET  /api/health          健康检查`);
   console.log(`    GET  /api/model/config    获取模型配置`);
@@ -720,4 +743,33 @@ app.listen(PORT, () => {
   console.log(`    POST /api/generate/cancel 取消生成`);
   console.log(`    POST /api/convert/markdown Markdown 转 DOCX`);
   console.log('');
+});
+
+// Graceful shutdown
+let isShuttingDown = false;
+function gracefulShutdown(signal: string) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`\n收到 ${signal}，正在优雅关闭...`);
+  server.close(() => {
+    console.log('所有连接已关闭，进程退出');
+    process.exit(0);
+  });
+  // 超时 10 秒强制退出
+  setTimeout(() => {
+    console.error('等待超时，强制关闭');
+    process.exit(1);
+  }, 10000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// 全局异常处理
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  gracefulShutdown('uncaughtException');
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason);
 });

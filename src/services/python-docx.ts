@@ -12,21 +12,31 @@ import { randomUUID } from 'crypto';
 // 项目根目录（从 dist/services/ 向上两级）
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
 const PYTHON_SCRIPT = path.join(PROJECT_ROOT, 'scripts', 'docforge_py.py');
-const VENV_PYTHON = path.join(PROJECT_ROOT, '.venv', 'Scripts', 'python.exe');
 
 function createTempToken(prefix: string): string {
   return `${prefix}_${Date.now()}_${randomUUID().slice(0, 8)}`;
 }
 
 function resolvePythonCommand(): { command: string; args: string[] } {
-  if (fs.existsSync(VENV_PYTHON)) {
-    return { command: VENV_PYTHON, args: [] };
+  // 环境变量指定 Python 路径（最高优先级）
+  const envPath = process.env.PYTHON_PATH;
+  if (envPath && fs.existsSync(envPath)) {
+    return { command: envPath, args: [] };
   }
 
+  // 环境变量指定 venv 目录
+  const venvDir = process.env.PYTHON_VENV_PATH || '.venv';
+  const venvPython = process.platform === 'win32'
+    ? path.join(PROJECT_ROOT, venvDir, 'Scripts', 'python.exe')
+    : path.join(PROJECT_ROOT, venvDir, 'bin', 'python');
+  if (fs.existsSync(venvPython)) {
+    return { command: venvPython, args: [] };
+  }
+
+  // 系统回退
   if (process.platform === 'win32') {
     return { command: 'py', args: ['-3.13'] };
   }
-
   return { command: process.env.PYTHON || 'python3', args: [] };
 }
 
